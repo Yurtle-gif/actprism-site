@@ -165,7 +165,9 @@ kbd{font:700 13px/1 var(--f-body);letter-spacing:.06em;text-transform:uppercase;
       <div><dt>Takedowns</dt><dd id="oKills">0</dd></div>
       <div><dt id="oBestLabel">Best</dt><dd id="oBest" class="hi">0</dd></div>
     </dl>
+    <p class="note" id="oCheck" hidden>Retrying starts the boss wave again with all nine lives and the upgrades you had.</p>
     <div class="row">
+      <button id="retryBtn" class="btn" type="button" hidden>Retry boss</button>
       <button id="againBtn" class="btn" type="button">Play again</button>
       <button id="menuBtn" class="btn ghost" type="button">Main menu</button>
     </div>
@@ -263,7 +265,7 @@ const cam = { x: 0, y: 0, z: 1 };
 function makeState(mode) {
   return {
     mode, t: 0, wave: 0, waveState: 'intro', waveT: 0, clock: 0, queue: [], spawns: [],
-    score: 0, kills: 0, combo: 0, comboT: 0, nextId: 1, banner: null, offer: [], slowmo: 0, deathT: 0, newBest: false, cine: null, finale: null,
+    score: 0, kills: 0, combo: 0, comboT: 0, nextId: 1, banner: null, offer: [], slowmo: 0, deathT: 0, newBest: false, cine: null, finale: null, checkpoint: null,
     p: { x: 760, y: 700, vx: 0, vy: 0, r: 13, lives: 9, inv: 0, ammo: 17, reloadT: 0, reloadMax: 1, fireCD: 0, dashCD: 0, dashT: 0,
          ddx: 1, ddy: 0, aim: -0.4, walk: 0, flash: 0, recoil: 0, frenzy: 0, spread: 0, dead: false, picks: {}, hitIds: [], kbT: 0 },
     enemies: [], bullets: [], shots: [], pickups: []
@@ -451,8 +453,10 @@ addEventListener('keydown', e => {
   } else if (S.mode === 'upgrade') {
     const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[e.code];
     if (n != null && S.offer[n]) chooseUpgrade(S.offer[n]);
-  } else if ((S.mode === 'title' || S.mode === 'over') && e.code === 'Enter') {
+  } else if (S.mode === 'title' && e.code === 'Enter') {
     startGame();
+  } else if (S.mode === 'over' && e.code === 'Enter') {
+    if (S.checkpoint) retryCheckpoint(); else startGame();
   }
 });
 addEventListener('keyup', e => keys.delete(e.code));
@@ -557,7 +561,7 @@ function pollMenuPad() {
   const edge = i => b(i) && !gpPrev[i];
   if (S.mode === 'title' && (edge(0) || edge(9))) startGame();
   else if (S.mode === 'paused' && (edge(0) || edge(9))) resumeGame();
-  else if (S.mode === 'over' && (edge(0) || edge(9))) startGame();
+  else if (S.mode === 'over' && (edge(0) || edge(9))) { if (S.checkpoint) retryCheckpoint(); else startGame(); }
   else if (S.mode === 'upgrade') {
     const map = [[2, 0], [0, 1], [1, 2]];
     for (const [btn, i] of map) if (edge(btn) && S.offer[i]) { chooseUpgrade(S.offer[i]); break; }
@@ -633,14 +637,30 @@ function floatText(x, y, text, col, size = 16) { FX.texts.push({ x, y, text, col
 function banner(title, sub, dur = 2) { S.banner = { title, sub, t: dur, max: dur }; }
 
 /* ---------- game flow ---------- */
-function startGame() {
-  if (S && S.mode !== 'title' && S.mode !== 'over' && S.mode !== 'paused') return;
+function resetRun() {
   audioInit();
   S = makeState('play');
-  calcStats();
   FX.parts.length = 0; FX.texts.length = 0; FX.casings.length = 0; FX.decals.length = 0;
   mouse.down = false;
   stickL.id = stickR.id = null;
+}
+function startGame() {
+  if (S && S.mode !== 'title' && S.mode !== 'over' && S.mode !== 'paused') return;
+  resetRun();
+  calcStats();
+  updCam(0, true);
+  startWave();
+  showFor('play');
+}
+// dying on or after a boss wave restarts that boss wave with full lives and the same upgrades
+function retryCheckpoint() {
+  if (!S || S.mode !== 'over' || !S.checkpoint) return;
+  const cp = S.checkpoint;
+  resetRun();
+  S.checkpoint = cp;
+  S.p.picks = Object.assign({}, cp.picks);
+  S.score = cp.score; S.kills = cp.kills; S.wave = cp.wave - 1;
+  calcStats();
   updCam(0, true);
   startWave();
   showFor('play');
@@ -675,6 +695,12 @@ function showFor(mode) {
     $('oKills').textContent = fmt(S.kills);
     $('oBest').textContent = fmt(best);
     $('oBestLabel').textContent = S.newBest ? 'New best' : 'Best';
+    const cp = S.checkpoint;
+    $('retryBtn').hidden = !cp;
+    $('oCheck').hidden = !cp;
+    if (cp) $('retryBtn').textContent = 'Retry from wave ' + cp.wave;
+    $('againBtn').className = cp ? 'btn ghost' : 'btn';
+    $('againBtn').textContent = cp ? 'Start over' : 'Play again';
   }
   if (mode === 'play') blurActive();
   syncTouchUI();
@@ -691,7 +717,13 @@ function startWave() {
   const bossN = Math.floor(n / 5);
   let budget = boss ? (bossN === 1 ? 3 : 4 + n) : 6 + n * 4;
   let t = boss ? 4 : 0.3;
-  if (boss) { const pt = spawnPoint('boss'); S.cine = { t: 0, x: pt.x, y: pt.y, id: 0, landed: false, roared: false }; }
+  if (boss) {
+    S.checkpoint = { wave: n, picks: Object.assign({}, p.picks), score: S.score, kills: S.kills };
+    // walk into every boss fight with at least three lives back
+    if (p.lives < 9) { const got = Math.min(9, p.lives + 3) - p.lives; p.lives += got; floatText(p.x, p.y - 50, '+' + got + (got === 1 ? ' life' : ' lives'), C.tabby, 16); }
+    const pt = spawnPoint('boss');
+    S.cine = { t: 0, x: pt.x, y: pt.y, id: 0, landed: false, roared: false };
+  }
   const fresh = pool.find(k => ET[k].minWave === n);
   if (fresh) {
     for (let i = 0; i < 2 && budget >= ET[fresh].cost; i++) { S.queue.push({ type: fresh, at: t, n: 1 }); budget -= ET[fresh].cost; t += 1.2; }
@@ -1054,9 +1086,11 @@ function updBoss(e, dt, ux, uy, d) {
   } else if (e.st === 'spit') {
     if (e.cd <= 0) {
       e.cd = e.enr ? 0.6 : 0.75;
-      const n = e.enr ? 12 : 10, off = e.anim * 0.9, sp = e.enr ? 185 : 165;
+      const n = e.enr ? 12 : 10, sp = e.enr ? 185 : 165;
+      // every ring leaves a two-ball gap somewhere near the cat's side
+      const gap = Math.atan2(p.y - e.y, p.x - e.x) + rand(-1.2, 1.2);
       for (let i = 0; i < n; i++) {
-        const a = off + i / n * TAU;
+        const a = gap + (i + 1.5) / (n + 2) * TAU;
         S.shots.push({ k: 'dust', x: e.x + Math.cos(a) * 40, y: e.y + Math.sin(a) * 22, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 8, life: 4, z: 28 });
       }
       e.squish = 0.15;
@@ -1690,7 +1724,10 @@ function drawBoss(e) {
   rr(-40, -15, 80, 7, 3, F(intake));
   ctx.scale(sq, 1 / sq);
   rr(-30, -112, 60, 82, 16, F(C.boss));
-  rr(-20, -100, 40, 52, 12, F(gather ? 'rgba(255,209,102,.55)' : 'rgba(210,220,255,.24)'));
+  // the canister glows just before every ring of dust
+  const charging = gather || (e.st === 'spit' && e.cd < 0.25 && e.cd < e.stT);
+  rr(-20, -100, 40, 52, 12, F(charging ? 'rgba(255,209,102,.6)' : 'rgba(210,220,255,.24)'));
+  if (charging) { ctx.globalAlpha = 0.3; rr(-26, -106, 52, 64, 16, F(C.brass)); ctx.globalAlpha = 1; }
   for (let i = 0; i < 8; i++) {
     const a = e.anim * (suck || gather ? 9 : 3) + i * 0.8;
     circ(Math.cos(a) * 12, -74 + Math.sin(a * 1.3) * 18, 3, F(C.dust));
@@ -2108,6 +2145,7 @@ $('resumeBtn').addEventListener('click', () => { audioInit(); resumeGame(); });
 $('restartBtn').addEventListener('click', startGame);
 $('quitBtn').addEventListener('click', toTitle);
 $('againBtn').addEventListener('click', startGame);
+$('retryBtn').addEventListener('click', retryCheckpoint);
 $('menuBtn').addEventListener('click', toTitle);
 document.querySelectorAll('.mute').forEach(b => b.addEventListener('click', () => { audioInit(); setMuted(!AU.muted); }));
 const tap = (id, fn) => $(id).addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); audioInit(); fn(); });
