@@ -184,6 +184,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const rint = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const pick = a => a[Math.floor(Math.random() * a.length)];
+const ease = t => t * t * (3 - 2 * t);
 const d2 = (ax, ay, bx, by) => (ax - bx) * (ax - bx) + (ay - by) * (ay - by);
 const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
 const fmt = n => Math.floor(n).toLocaleString('en-US');
@@ -232,9 +233,11 @@ const ET = {
   vac:    { r: 17, hp: 6,   spd: 95,  score: 25,   cost: 3, minWave: 2,  w: 2,   hc: 9,  hr: 18, kb: 90,  mass: 3,  col: C.menace, name: 'Robo-vac' },
   spritz: { r: 13, hp: 4,   spd: 90,  score: 30,   cost: 3, minWave: 3,  w: 1.6, hc: 22, hr: 15, kb: 150, mass: 1.5, col: C.water, name: 'Spray bottle' },
   dog:    { r: 23, hp: 16,  spd: 72,  score: 60,   cost: 6, minWave: 4,  w: 1.1, hc: 22, hr: 25, kb: 40,  mass: 6,  col: C.dog, name: 'Bulldog' },
-  boss:   { r: 44, hp: 170, spd: 62,  score: 1000, cost: 0, minWave: 99, w: 0,   hc: 64, hr: 52, kb: 0,   mass: 40, col: C.hurt, name: 'Dustzilla' }
+  boss:   { r: 44, hp: 150, spd: 62,  score: 1000, cost: 0, minWave: 99, w: 0,   hc: 64, hr: 52, kb: 0,   mass: 40, col: C.hurt, name: 'Dustzilla' }
 };
-const WAVE_LINES = { 1: 'Rats in the kitchen', 2: 'The robo-vacs are awake', 3: 'Spray bottles. Cats hate spray bottles.', 4: 'Who let the bulldog in?', 5: 'Boss: Dustzilla' };
+const WAVE_LINES = { 1: 'Rats in the kitchen', 2: 'The robo-vacs are awake', 3: 'Spray bottles. Cats hate spray bottles.', 4: 'Who let the bulldog in?' };
+// boss intro beats, in seconds from the start of the boss wave
+const CINE = { drop: 0.7, land: 1.75, roar: 2.15, end: 4.6 };
 const FILLER_LINES = ['They want the kibble', 'Nobody touches the food bowl', 'More rats than floor tiles', 'The night shift continues', 'Hold the kitchen'];
 const UPGRADES = [
   { id: 'dmg',      tag: 'damage',   name: 'Hollow Points',     desc: 'Bullets hit 30% harder.', max: 5 },
@@ -254,15 +257,15 @@ const UPGRADES = [
 let S = null;
 let ST = {};
 let best = store.get('gk.best', 0);
-const FX = { parts: [], texts: [], casings: [], decals: [], shake: 0, hurt: 0 };
-const cam = { x: 0, y: 0 };
+const FX = { parts: [], texts: [], casings: [], decals: [], shake: 0, hurt: 0, flash: 0 };
+const cam = { x: 0, y: 0, z: 1 };
 
 function makeState(mode) {
   return {
     mode, t: 0, wave: 0, waveState: 'intro', waveT: 0, clock: 0, queue: [], spawns: [],
-    score: 0, kills: 0, combo: 0, comboT: 0, nextId: 1, banner: null, offer: [], slowmo: 0, deathT: 0, newBest: false,
+    score: 0, kills: 0, combo: 0, comboT: 0, nextId: 1, banner: null, offer: [], slowmo: 0, deathT: 0, newBest: false, cine: null, finale: null,
     p: { x: 760, y: 700, vx: 0, vy: 0, r: 13, lives: 9, inv: 0, ammo: 17, reloadT: 0, reloadMax: 1, fireCD: 0, dashCD: 0, dashT: 0,
-         ddx: 1, ddy: 0, aim: -0.4, walk: 0, flash: 0, recoil: 0, frenzy: 0, spread: 0, dead: false, picks: {}, hitIds: [] },
+         ddx: 1, ddy: 0, aim: -0.4, walk: 0, flash: 0, recoil: 0, frenzy: 0, spread: 0, dead: false, picks: {}, hitIds: [], kbT: 0 },
     enemies: [], bullets: [], shots: [], pickups: []
   };
 }
@@ -372,11 +375,22 @@ const SFX = {
   puff()   { if (!gate('pf', 90)) return; noise(0.14, 700, 1, 0.16, 'bandpass', 0, 250); },
   rev()    { if (!gate('rev', 150)) return; tone('sawtooth', 120, 520, 0.6, 0.07, 0, 900); },
   choose() { if (!gate('ch', 100)) return; tone('square', 520, 520, 0.06, 0.1); tone('square', 780, 780, 0.1, 0.1, 0.06); },
-  over()   { if (!gate('ov', 500)) return; tone('triangle', 440, 220, 0.5, 0.18); tone('triangle', 330, 165, 0.7, 0.18, 0.3); }
+  over()   { if (!gate('ov', 500)) return; tone('triangle', 440, 220, 0.5, 0.18); tone('triangle', 330, 165, 0.7, 0.18, 0.3); },
+  rumble() { if (!gate('ru', 800)) return; tone('sawtooth', 55, 40, 1.6, 0.16, 0, 200); noise(1.6, 120, 0.7, 0.2, 'lowpass'); },
+  fall()   { if (!gate('fa', 500)) return; tone('sine', 900, 160, 1, 0.07); },
+  thud()   { if (!gate('th', 300)) return; tone('sine', 110, 28, 0.6, 0.6); noise(0.5, 300, 0.7, 0.4, 'lowpass'); },
+  inhale() { if (!gate('in', 400)) return; noise(0.9, 300, 1.5, 0.18, 'bandpass', 0, 2200); },
+  pop()    { if (!gate('pop', 70)) return; noise(0.12, 900, 0.9, 0.22, 'bandpass', 0, 300); tone('sine', 180, 60, 0.12, 0.18); },
+  boom()   { if (!gate('boom', 500)) return; noise(1.4, 900, 0.6, 0.6, 'lowpass', 0, 80); tone('sine', 120, 25, 1.2, 0.7); },
+  fanfare() {
+    if (!gate('ff', 1000)) return;
+    [523, 659, 784, 1047].forEach((f, i) => tone('square', f, f, i === 3 ? 0.5 : 0.12, 0.09, 0.5 + i * 0.12));
+    tone('triangle', 1047, 1047, 0.6, 0.12, 0.86);
+  }
 };
 
 /* ---------- screen ---------- */
-let W = 0, H = 0, DPR = 1, SC = 1, VW = 0, VH = 0;
+let W = 0, H = 0, DPR = 1, SC = 1, ZS = 1, VW = 0, VH = 0;
 const SAFE = { t: 0, r: 0, b: 0, l: 0 };
 let vignette = null;
 function resize() {
@@ -386,7 +400,7 @@ function resize() {
   cvs.height = Math.max(1, Math.round(H * DPR));
   const base = W < H ? 500 : (H < 520 ? 430 : 600);
   SC = Math.min(W, H) / base;
-  VW = W / SC; VH = H / SC;
+  ZS = SC * cam.z; VW = W / ZS; VH = H / ZS;
   const s = getComputedStyle($('safe'));
   SAFE.t = parseFloat(s.paddingTop) || 0; SAFE.r = parseFloat(s.paddingRight) || 0;
   SAFE.b = parseFloat(s.paddingBottom) || 0; SAFE.l = parseFloat(s.paddingLeft) || 0;
@@ -425,7 +439,9 @@ addEventListener('keydown', e => {
   const play = S.mode === 'play';
   if (play && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (e.code === 'KeyM') setMuted(!AU.muted);
-  if (play) {
+  if (play && S.cine) {
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') skipCine();
+  } else if (play) {
     if (touchMode) setTouchMode(false);
     if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') wantDash = true;
     if (e.code === 'KeyR') wantReload = true;
@@ -458,6 +474,7 @@ addEventListener('pointermove', e => {
 }, { passive: true });
 cvs.addEventListener('pointerdown', e => {
   audioInit();
+  if (S && S.mode === 'play' && S.cine) skipCine();
   if (e.pointerType === 'mouse') {
     mouse.x = e.clientX; mouse.y = e.clientY; mouse.seen = true;
     if (touchMode) setTouchMode(false);
@@ -492,7 +509,7 @@ function readInput() {
   if (keys.has('KeyA') || keys.has('ArrowLeft')) o.mx -= 1;
   if (keys.has('KeyD') || keys.has('ArrowRight')) o.mx += 1;
   if (!touchMode && mouse.seen) {
-    const sx = (p.x - cam.x) * SC, sy = (p.y - 16 - cam.y) * SC;
+    const sx = (p.x - cam.x) * ZS, sy = (p.y - 16 - cam.y) * ZS;
     o.aim = Math.atan2(mouse.y - sy, mouse.x - sx);
     o.fire = mouse.down;
   }
@@ -596,7 +613,7 @@ function clearSpot(x, y, r) {
 
 /* ---------- effects ---------- */
 function shake(n) { FX.shake = Math.max(FX.shake, REDUCED ? n * 0.25 : n); }
-function part(o) { if (FX.parts.length < 420) FX.parts.push(o); }
+function part(o) { if (FX.parts.length < 650) FX.parts.push(o); }
 function burst(x, y, z, cols, n, spd, kind = 'dot') {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU, s = rand(spd * 0.3, spd);
@@ -662,7 +679,7 @@ function showFor(mode) {
   if (mode === 'play') blurActive();
   syncTouchUI();
 }
-function syncTouchUI() { $('touch').hidden = !(touchMode && S && S.mode === 'play'); }
+function syncTouchUI() { $('touch').hidden = !(touchMode && S && S.mode === 'play' && !S.cine && !(S.finale && !S.finale.boomed)); }
 
 function startWave() {
   S.wave++;
@@ -671,9 +688,10 @@ function startWave() {
   const p = S.p;
   p.ammo = ST.mag; p.reloadT = 0;
   const pool = Object.keys(ET).filter(k => ET[k].minWave <= n);
-  let budget = boss ? 4 + n : 6 + n * 4;
-  let t = 0.3;
-  if (boss) S.queue.push({ type: 'boss', at: 0.4, n: 1 });
+  const bossN = Math.floor(n / 5);
+  let budget = boss ? (bossN === 1 ? 3 : 4 + n) : 6 + n * 4;
+  let t = boss ? 4 : 0.3;
+  if (boss) { const pt = spawnPoint('boss'); S.cine = { t: 0, x: pt.x, y: pt.y, id: 0, landed: false, roared: false }; }
   const fresh = pool.find(k => ET[k].minWave === n);
   if (fresh) {
     for (let i = 0; i < 2 && budget >= ET[fresh].cost; i++) { S.queue.push({ type: fresh, at: t, n: 1 }); budget -= ET[fresh].cost; t += 1.2; }
@@ -692,10 +710,53 @@ function startWave() {
     t += rand(0.7, 1.4) * gap;
   }
   S.queue.sort((a, b) => a.at - b.at);
-  const line = WAVE_LINES[n] || (boss ? 'Boss: Dustzilla is back' : pick(FILLER_LINES));
-  banner('Wave ' + n, line, 2.2);
-  if (boss) SFX.boss(); else SFX.wave();
+  if (boss) { S.banner = null; SFX.rumble(); syncTouchUI(); return; }
+  banner('Wave ' + n, WAVE_LINES[n] || pick(FILLER_LINES), 2.2);
+  SFX.wave();
 }
+function updCine(real) {
+  const c = S.cine, p = S.p;
+  c.t += real; S.t += real;
+  p.vx = p.vy = 0; p.inv = Math.max(p.inv, 0.3);
+  const gp = gamepad();
+  if (gp && gp.buttons[0] && gp.buttons[0].pressed) skipCine();
+  if (!S.cine) return;
+  if (!c.id && c.t >= CINE.drop) {
+    const e = spawnEnemy('boss', c.x, c.y);
+    c.x = e.x; c.y = e.y; c.id = e.id; e.eye = 0; e.drop = 560;
+    SFX.fall();
+  }
+  const e = c.id ? S.enemies.find(o => o.id === c.id) : null;
+  if (e) {
+    e.anim += real;
+    const k = clamp((c.t - CINE.drop) / (CINE.land - CINE.drop), 0, 1);
+    e.drop = 560 * (1 - k * k);
+    if (!c.landed && k >= 1) {
+      c.landed = true; e.drop = 0;
+      shake(22);
+      burst(e.x, e.y, 6, [C.dust, '#9d93b8'], 40, 320);
+      ring(e.x, e.y, 4, C.dust, 120, 0.6); ring(e.x, e.y, 4, C.ink, 70, 0.4);
+      SFX.thud();
+    }
+    if (c.t >= CINE.roar) {
+      e.eye = clamp((c.t - CINE.roar) / 0.25, 0, 1);
+      if (!c.roared) { c.roared = true; SFX.boss(); shake(10); }
+      if (Math.random() < 0.6) part({ kind: 'dot', x: e.x + rand(-30, 30), y: e.y + 4, z: rand(0, 10), vx: rand(-260, 260), vy: rand(40, 160), drag: 2, life: 0.6, max: 0.6, size: rand(2, 4), col: C.dust });
+    }
+  }
+  if (c.t >= CINE.end) endCine();
+}
+function endCine() {
+  const c = S.cine;
+  if (!c) return;
+  let e = c.id ? S.enemies.find(o => o.id === c.id) : null;
+  if (!e) e = spawnEnemy('boss', c.x, c.y);
+  if (!c.landed) { shake(16); burst(e.x, e.y, 6, [C.dust], 30, 280); SFX.thud(); }
+  e.drop = 0; e.eye = 1; e.stT = 1.4;
+  S.cine = null; S.waveState = 'fight'; S.clock = 0; S.banner = null;
+  syncTouchUI();
+}
+function skipCine() { if (S.cine && S.cine.t > 0.4) endCine(); }
 function spawnPoint(type) {
   const p = S.p, r = ET[type].r;
   const minD = type === 'boss' ? 420 : 340;
@@ -728,7 +789,7 @@ function spawnEnemy(type, x, y) {
     dir: 0, face: 1, anim: Math.random() * 10, cd: rand(1, 2), squish: 0, phase: 0, enr: false, dead: false };
   collide(e);
   S.enemies.push(e);
-  if (type === 'boss') { e.stT = 2.5; banner('Dustzilla', 'It sucks. Literally. Pounce out of the pull.', 2.4); shake(10); }
+  if (type === 'boss') { e.stT = 1.4; e.phase = 1; e.drop = 0; e.eye = 1; e.drops = 0; e.dying = 0; }
   return e;
 }
 function openUpgrade() {
@@ -814,13 +875,13 @@ function ejectCasing() {
     vy: Math.sin(a) * s * 0.7, vz: rand(90, 160), rot: Math.random() * TAU, spin: rand(-22, 22), life: 7, bounced: false });
   if (FX.casings.length > 140) FX.casings.shift();
 }
-function hurtPlayer(sx, sy) {
+function hurtPlayer(sx, sy, kb = 320) {
   const p = S.p;
   if (p.inv > 0 || p.dashT > 0 || p.dead) return;
   p.lives--;
   p.inv = 1.4;
   const a = Math.atan2(p.y - sy, p.x - sx);
-  p.vx += Math.cos(a) * 320; p.vy += Math.sin(a) * 320;
+  p.vx = Math.cos(a) * kb; p.vy = Math.sin(a) * kb; p.kbT = 0.22;
   shake(12); FX.hurt = 1; S.slowmo = 0.16; S.combo = 0;
   burst(p.x, p.y, 18, [C.tabby, C.tabbyLight, C.cream], 12, 160, 'fur');
   floatText(p.x, p.y - 44, p.lives > 0 ? (p.lives + (p.lives === 1 ? ' life left' : ' lives left')) : 'Out of lives', C.hurt, 15);
@@ -855,6 +916,10 @@ function updatePlayer(dt, inp) {
     p.dashT -= dt;
     p.vx = p.ddx * 650; p.vy = p.ddy * 650;
     part({ kind: 'ghost', x: p.x, y: p.y, z: 0, vx: 0, vy: 0, life: 0.22, max: 0.22, size: 1, face: Math.cos(p.aim) >= 0 ? 1 : -1 });
+  } else if (p.kbT > 0) {
+    p.kbT -= dt;
+    const k = Math.exp(-5 * dt);
+    p.vx *= k; p.vy *= k;
   } else {
     const k = 1 - Math.exp(-16 * dt);
     p.vx += (mx * spd - p.vx) * k; p.vy += (my * spd - p.vy) * k;
@@ -946,41 +1011,58 @@ function updBoss(e, dt, ux, uy, d) {
   const p = S.p;
   e.cd -= dt;
   e.tx = 0; e.ty = 0;
-  if (!e.enr && e.hp < e.maxhp * 0.5) {
+  const frac = e.hp / e.maxhp;
+  if (!e.enr && frac < 0.5) {
     e.enr = true; banner('Dustzilla is furious', 'Faster spit, stronger pull', 1.8); SFX.boss(); shake(10);
   }
+  // a fish pops out at two-thirds and one-third health
+  if ((e.drops === 0 && frac < 0.66) || (e.drops === 1 && frac < 0.33)) {
+    e.drops++;
+    addPickup('fish', e.x + ux * 90, e.y + uy * 90);
+    floatText(e.x, e.y - 150, 'A fish fell out', C.tabby, 15);
+  }
   if (e.st === 'move') {
-    e.tx = ux * ET.boss.spd; e.ty = uy * ET.boss.spd;
+    // hold a short distance instead of walking into the cat; it fights with the pull and the spit
+    const want = d > 170 ? 1 : d < 130 ? -0.5 : 0;
+    e.tx = ux * ET.boss.spd * want; e.ty = uy * ET.boss.spd * want;
     if (e.stT <= 0 && !p.dead) {
       e.phase = (e.phase + 1) % 2;
-      e.st = e.phase ? 'suck' : 'spit';
-      e.stT = e.st === 'suck' ? 3.2 : 2.4;
-      e.cd = 0.3;
-      if (e.st === 'suck') SFX.boss();
+      if (e.phase) { e.st = 'inhale'; e.stT = 0.9; SFX.inhale(); }
+      else { e.st = 'gather'; e.stT = 0.6; }
     }
+  } else if (e.st === 'inhale') {
+    if (e.stT <= 0) { e.st = 'suck'; e.stT = 2.6; e.cd = 1.2; }
   } else if (e.st === 'suck') {
-    const pull = (e.enr ? 215 : 185) * clamp(1.15 - d / 900, 0.35, 1);
-    if (p.dashT <= 0 && !p.dead) { p.x -= ux * pull * dt; p.y -= uy * pull * dt; collide(p); }
+    // the pull fades out near the nozzle and pauses while the cat is invulnerable, so it can never pin the cat for repeat hits
+    const near = clamp((d - e.r - 40) / 120, 0, 1);
+    const pull = (e.enr ? 170 : 145) * clamp(1.15 - d / 900, 0.35, 1) * near;
+    if (p.dashT <= 0 && p.inv <= 0 && !p.dead) { p.x -= ux * pull * dt; p.y -= uy * pull * dt; collide(p); }
     for (let i = 0; i < 3; i++) {
       const a = Math.random() * TAU, rr = rand(120, 340);
       const sx = e.x + Math.cos(a) * rr, sy = e.y + Math.sin(a) * rr * 0.7;
       const ix = e.x, iy = e.y - 4, dd = Math.hypot(ix - sx, iy - sy) || 1, sp = rand(320, 460);
       part({ kind: 'dot', x: sx, y: sy, z: 6, vx: (ix - sx) / dd * sp, vy: (iy - sy) / dd * sp, drag: 0, life: dd / sp, max: dd / sp, size: rand(1.5, 3), col: C.dust });
     }
-    if (e.enr && e.cd <= 0) { e.cd = 1.4; const pt = spawnPoint('rat'); S.spawns.push({ type: 'rat', x: pt.x, y: pt.y, t: 0.8, max: 0.8 }); }
-    if (e.stT <= 0) { e.st = 'move'; e.stT = 2.2; }
+    if (e.enr && e.cd <= 0) {
+      e.cd = 2.2;
+      if (S.enemies.filter(o => o.t === 'rat' && !o.dead).length < 4) { const pt = spawnPoint('rat'); S.spawns.push({ type: 'rat', x: pt.x, y: pt.y, t: 0.8, max: 0.8 }); }
+    }
+    if (e.stT <= 0) { e.st = 'move'; e.stT = 2.4; }
+  } else if (e.st === 'gather') {
+    e.squish = 0.12;
+    if (e.stT <= 0) { e.st = 'spit'; e.stT = 2.2; e.cd = 0; }
   } else if (e.st === 'spit') {
     if (e.cd <= 0) {
-      e.cd = e.enr ? 0.42 : 0.6;
-      const n = e.enr ? 16 : 12, off = e.anim * 0.9;
+      e.cd = e.enr ? 0.6 : 0.75;
+      const n = e.enr ? 12 : 10, off = e.anim * 0.9, sp = e.enr ? 185 : 165;
       for (let i = 0; i < n; i++) {
         const a = off + i / n * TAU;
-        S.shots.push({ k: 'dust', x: e.x + Math.cos(a) * 40, y: e.y + Math.sin(a) * 22, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200, r: 9, life: 4, z: 28 });
+        S.shots.push({ k: 'dust', x: e.x + Math.cos(a) * 40, y: e.y + Math.sin(a) * 22, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 8, life: 4, z: 28 });
       }
       e.squish = 0.15;
       SFX.puff();
     }
-    if (e.stT <= 0) { e.st = 'move'; e.stT = 2.2; }
+    if (e.stT <= 0) { e.st = 'move'; e.stT = 2.4; }
   }
 }
 function separate() {
@@ -1000,26 +1082,26 @@ function contactDamage() {
   const p = S.p;
   if (p.dead) return;
   for (const e of S.enemies) {
-    if (e.dead) continue;
+    if (e.dead || e.dying > 0) continue;
     const rr = e.r + p.r - 3;
     if (d2(e.x, e.y, p.x, p.y) >= rr * rr) continue;
     if (p.dashT > 0 && ST.pounce) {
       if (!p.hitIds.includes(e.id)) { p.hitIds.push(e.id); damageEnemy(e, 4 * ST.dmg, p.ddx, p.ddy); shake(5); }
     } else {
-      hurtPlayer(e.x, e.y);
+      hurtPlayer(e.x, e.y, e.t === 'boss' ? 600 : 320);
     }
   }
 }
 function damageEnemy(e, dmg, vx, vy) {
-  if (e.dead) return;
+  if (e.dead || e.dying > 0) return;
   const T = ET[e.t];
   e.hp -= dmg; e.flash = 0.07;
   const s = Math.hypot(vx, vy) || 1;
   e.vx += vx / s * T.kb; e.vy += vy / s * T.kb;
   SFX.hit();
-  if (e.hp <= 0) killEnemy(e);
+  if (e.hp <= 0) { if (e.t === 'boss') startFinale(e); else killEnemy(e); }
 }
-function killEnemy(e) {
+function killEnemy(e, noLoot = false) {
   e.dead = true;
   const T = ET[e.t];
   S.kills++;
@@ -1034,14 +1116,61 @@ function killEnemy(e) {
   else if (e.t === 'spritz') { burst(e.x, e.y, z, [C.water, C.waterDeep, '#d8efff'], 16, 190, 'drop'); FX.decals.push({ x: e.x, y: e.y, r: 26, life: 4, max: 4 }); SFX.splash(); }
   else if (e.t === 'dog') { burst(e.x, e.y, z, [C.dog, C.dogDark, C.dogBelly], 18, 180, 'fur'); SFX.bark(); shake(6); }
   else if (e.t === 'boss') {
-    burst(e.x, e.y, 40, [C.dust, C.boss, C.bossDark, C.brass, C.hurt], 70, 360, 'fur');
-    for (let i = 0; i < 5; i++) ring(e.x + rand(-40, 40), e.y + rand(-30, 10), rand(20, 80), C.ink, rand(30, 60), 0.5);
-    S.slowmo = 1.1; shake(20); SFX.boss();
-    banner('Dustzilla down', '+' + pts + ' points', 2);
+    burst(e.x, e.y, 40, [C.dust, C.boss, C.bossDark, C.brass, C.hurt], 70, 380, 'fur');
+    for (let i = 0; i < 160; i++) {
+      const a = Math.random() * TAU, s = rand(40, 340), life = rand(2.8, 4.4);
+      part({ kind: 'confetti', x: e.x, y: e.y, z: rand(60, 150), vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.7, vz: rand(120, 380), g: 300, vmax: 80, drag: 1.4,
+        life, max: life, size: rand(3, 5.5), col: pick([C.tabby, C.brass, C.menace, C.hurt, C.pink, '#7ee08a']), rot: Math.random() * TAU, spin: rand(-12, 12), stick: true });
+    }
+    ring(e.x, e.y, 10, C.ink, 240, 0.7); ring(e.x, e.y, 10, C.brass, 150, 0.5);
+    S.slowmo = 0.9; shake(24); FX.flash = 1;
+    SFX.boom(); SFX.fanfare();
   }
-  stars(e.x, e.y, z, e.t === 'boss' ? 12 : 3, C.brass);
+  stars(e.x, e.y, z, e.t === 'boss' ? 14 : 3, C.brass);
   ring(e.x, e.y, z, T.col, T.r + 8);
-  dropLoot(e);
+  if (!noLoot) dropLoot(e);
+  return pts;
+}
+// the boss doesn't just vanish: it shakes, sparks and pops for a couple of seconds, then blows
+function startFinale(e) {
+  e.hp = 0; e.dying = 1; e.st = 'dying'; e.vx = e.vy = 0;
+  S.finale = { t: 0, x: e.x, y: e.y, id: e.id, boomed: false, boomT: 0, next: 0 };
+  S.shots.length = 0; S.slowmo = 0; S.banner = null;
+  S.p.inv = Math.max(S.p.inv, 0.5);
+  shake(14); SFX.boss();
+  syncTouchUI();
+}
+function updFinale(real) {
+  const f = S.finale;
+  f.t += real;
+  if (f.boomed) { if (f.t >= f.boomT + 1.4) { S.finale = null; syncTouchUI(); } return; }
+  S.t += real;
+  S.p.inv = Math.max(S.p.inv, 0.5);
+  const e = S.enemies.find(o => o.id === f.id);
+  if (!e) { f.boomed = true; f.boomT = f.t; return; }
+  e.anim += real;
+  e.flash = Math.floor(f.t * 14) % 2 ? 0.05 : 0;
+  f.next -= real;
+  if (f.next <= 0) {
+    f.next = rand(0.1, 0.2) * (1 - Math.min(0.6, f.t / 4));
+    const x = e.x + rand(-36, 36), y = e.y + rand(-6, 6), z = rand(20, 130);
+    burst(x, y, z, [C.brass, C.hurt, '#fff7e0'], 8, 220, 'spark');
+    burst(x, y, z, [C.dust], 4, 80);
+    ring(x, y, z, C.brass, rand(14, 26), 0.3);
+    shake(6); SFX.pop();
+  }
+  if (f.t >= 2.4) { f.boomed = true; f.boomT = f.t; bossBoom(e); syncTouchUI(); }
+}
+function bossBoom(e) {
+  e.dying = 0;
+  const pts = killEnemy(e);
+  // the blast takes the escorts with it
+  for (const o of S.enemies) if (!o.dead) { o.hp = 0; killEnemy(o, true); }
+  S.queue = []; S.spawns = []; S.shots.length = 0;
+  const bonus = 100 * S.wave;
+  S.score += bonus;
+  S.waveState = 'clear'; S.waveT = 4.2;
+  banner('Dustzilla down', '+' + fmt(pts) + ' · wave bonus +' + fmt(bonus), 3.6);
 }
 function addPickup(k, x, y) { S.pickups.push({ k, x: clamp(x + rand(-10, 10), 20, WORLD.w - 20), y: clamp(y + rand(-10, 10), 20, WORLD.h - 20), t: 12, ph: Math.random() * 6 }); }
 function dropLoot(e) {
@@ -1194,7 +1323,15 @@ function updFX(dt) {
     if (q.life <= 0) { ps[i] = ps[ps.length - 1]; ps.pop(); continue; }
     q.x += q.vx * dt; q.y += q.vy * dt;
     if (q.drag) { const dr = Math.exp(-q.drag * dt); q.vx *= dr; q.vy *= dr; }
-    if (q.g) { q.vz -= q.g * dt; q.z += q.vz * dt; if (q.z < 0) { q.z = 0; q.vz *= -0.3; q.vx *= 0.5; q.vy *= 0.5; } }
+    if (q.g) {
+      q.vz -= q.g * dt;
+      if (q.vmax && q.vz < -q.vmax) q.vz = -q.vmax;
+      q.z += q.vz * dt;
+      if (q.z < 0) {
+        q.z = 0;
+        if (q.stick) { q.vz = q.vx = q.vy = q.g = q.spin = 0; } else { q.vz *= -0.3; q.vx *= 0.5; q.vy *= 0.5; }
+      }
+    }
     if (q.spin) q.rot += q.spin * dt;
   }
   for (let i = FX.casings.length - 1; i >= 0; i--) {
@@ -1221,16 +1358,27 @@ function updFX(dt) {
 }
 function updCam(dt, snap) {
   const p = S.p;
-  let tx = p.x - VW / 2, ty = p.y - 24 - VH / 2;
-  if (S.mode === 'title' && W > H) tx = p.x - VW * 0.76;
-  if (!touchMode && mouse.seen && S.mode === 'play') {
-    tx += clamp((mouse.x - W / 2) / SC * 0.18, -90, 90);
-    ty += clamp((mouse.y - H / 2) / SC * 0.18, -70, 70);
+  let fx = p.x, fy = p.y - 24, tz = 1, follow = 8;
+  if (S.cine) {
+    const c = S.cine;
+    const k = ease(clamp((c.t - 0.15) / 1, 0, 1)) * (1 - ease(clamp((c.t - (CINE.end - 0.7)) / 0.7, 0, 1)));
+    fx += (c.x - fx) * k; fy += (c.y - 70 - fy) * k; tz = 1 + 0.2 * k; follow = 5;
+  } else if (S.finale) {
+    const f = S.finale;
+    const k = f.boomed ? 1 - ease(clamp((f.t - f.boomT) / 1.2, 0, 1)) : ease(clamp(f.t / 0.6, 0, 1));
+    fx += (f.x - fx) * k; fy += (f.y - 60 - fy) * k; tz = 1 + 0.3 * k; follow = 6;
+  } else if (!touchMode && mouse.seen && S.mode === 'play') {
+    fx += clamp((mouse.x - W / 2) / ZS * 0.18, -90, 90);
+    fy += clamp((mouse.y - H / 2) / ZS * 0.18, -70, 70);
   }
+  cam.z += (tz - cam.z) * (snap ? 1 : 1 - Math.exp(-4 * dt));
+  ZS = SC * cam.z; VW = W / ZS; VH = H / ZS;
+  let tx = fx - VW / 2, ty = fy - VH / 2;
+  if (S.mode === 'title' && W > H) tx = p.x - VW * 0.76;
   const minX = -WALL.side, maxX = WORLD.w + WALL.side - VW, minY = -WALL.top, maxY = WORLD.h + WALL.bottom - VH;
   tx = maxX < minX ? (minX + maxX) / 2 : clamp(tx, minX, maxX);
   ty = maxY < minY ? (minY + maxY) / 2 : clamp(ty, minY, maxY);
-  const k = snap ? 1 : 1 - Math.exp(-8 * dt);
+  const k = snap ? 1 : 1 - Math.exp(-follow * dt);
   cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k;
 }
 
@@ -1526,24 +1674,32 @@ function drawDog(e) {
   if (crouch) { ctx.fillStyle = C.hurt; ctx.font = '22px ' + FD; ctx.textAlign = 'center'; ctx.fillText('!', e.x, e.y - 52); }
 }
 function drawBoss(e) {
-  const suck = e.st === 'suck';
+  const suck = e.st === 'suck', inhale = e.st === 'inhale', gather = e.st === 'gather';
+  const drop = e.drop || 0;
   const sq = 1 + e.squish * 0.6;
   ctx.save(); ctx.translate(e.x, e.y);
-  ell(0, 4, 62, 16, C.shadow);
+  const sk = clamp(1 - drop / 700, 0.25, 1);
+  ell(0, 4, 62 * sk, 16 * sk, C.shadow);
+  if (e.dying > 0) ctx.translate(rand(-3.5, 3.5), rand(-2, 2));
+  ctx.translate(0, -drop);
   ctx.strokeStyle = F('#2a2140'); ctx.lineWidth = 4; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(-26, -60); ctx.bezierCurveTo(-70, -40, -60 + Math.sin(e.anim * 2) * 8, 6, -110, 10); ctx.stroke();
   circ(-36, -8, 10, F('#1a1428')); circ(36, -8, 10, F('#1a1428')); circ(-36, -8, 4, F('#5b5080')); circ(36, -8, 4, F('#5b5080'));
   rr(-54, -34, 108, 28, 12, F(C.bossDark));
-  rr(-40, -15, 80, 7, 3, F(suck ? C.hurt : '#120c1f'));
+  const intake = suck ? C.hurt : inhale ? (Math.sin(S.t * 24) > 0 ? C.hurt : '#5a1830') : '#120c1f';
+  rr(-40, -15, 80, 7, 3, F(intake));
   ctx.scale(sq, 1 / sq);
   rr(-30, -112, 60, 82, 16, F(C.boss));
-  rr(-20, -100, 40, 52, 12, F('rgba(210,220,255,.24)'));
+  rr(-20, -100, 40, 52, 12, F(gather ? 'rgba(255,209,102,.55)' : 'rgba(210,220,255,.24)'));
   for (let i = 0; i < 8; i++) {
-    const a = e.anim * (suck ? 9 : 3) + i * 0.8;
+    const a = e.anim * (suck || gather ? 9 : 3) + i * 0.8;
     circ(Math.cos(a) * 12, -74 + Math.sin(a * 1.3) * 18, 3, F(C.dust));
   }
   rr(-26, -134, 52, 28, 10, F(C.bossDark));
-  const eye = e.enr ? C.hurt : '#ff8a5c';
+  const on = e.eye == null ? 1 : e.eye;
+  const lit = on >= 1 || Math.random() < on;
+  const eye = lit ? (e.enr ? C.hurt : '#ff8a5c') : '#3a1622';
+  if (lit) { ctx.globalAlpha = 0.35; ell(0, -120, 26, 12, F(eye)); ctx.globalAlpha = 1; }
   ell(0, -120, 16, 6, F(eye)); ell(0, -120, 4, 5, F('#1a0d14'));
   line(-18, -132, -4, -126, F('#1a1428'), 4); line(18, -132, 4, -126, F('#1a1428'), 4);
   line(18, -132, 30, -178, F(C.bossDark), 6);
@@ -1616,10 +1772,14 @@ function drawTelegraphs() {
       ctx.globalAlpha = 0.3; ctx.strokeStyle = C.hurt; ctx.lineWidth = 3; ctx.setLineDash([6, 6]);
       ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + Math.cos(e.dir) * 150, e.y + Math.sin(e.dir) * 150); ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 1;
-    } else if (e.t === 'boss' && e.st === 'suck') {
-      ctx.globalAlpha = 0.12 + 0.06 * Math.sin(S.t * 12);
-      ell(e.x, e.y, 330, 220, C.hurt);
-      ctx.globalAlpha = 1;
+    } else if (e.t === 'boss' && (e.st === 'inhale' || e.st === 'suck')) {
+      const k = e.st === 'inhale' ? ease(clamp(1 - e.stT / 0.9, 0, 1)) : 1;
+      ctx.globalAlpha = e.st === 'suck' ? 0.12 + 0.06 * Math.sin(S.t * 12) : 0.1 * k;
+      ell(e.x, e.y, 330 * k, 220 * k, C.hurt);
+      ctx.globalAlpha = e.st === 'inhale' ? 0.6 : 0.3;
+      ctx.setLineDash([12, 10]); ctx.strokeStyle = C.hurt; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(e.x, e.y, 330, 220, 0, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
     }
   }
 }
@@ -1652,6 +1812,12 @@ function drawParticles() {
       ctx.strokeStyle = q.col; ctx.lineWidth = 2.5 * a;
       const r = q.size * (1.4 - a * 0.6);
       ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.6, 0, 0, TAU); ctx.stroke();
+    } else if (q.kind === 'confetti') {
+      ctx.globalAlpha = clamp(q.life / 0.6, 0, 1);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(q.rot);
+      const w = q.size * Math.abs(Math.cos(q.rot * 1.7)) + 0.6;
+      ctx.fillStyle = q.col; ctx.fillRect(-w / 2, -q.size * 0.35, w, q.size * 0.7);
+      ctx.restore();
     } else if (q.kind === 'ghost') {
       ctx.globalAlpha = a * 0.35;
       ell(x, y - 12, 12, 10, C.tabby); circ(x + q.face * 2, y - 29, 11, C.tabby);
@@ -1768,10 +1934,52 @@ function drawHUD() {
     ctx.globalAlpha = 1;
   }
 }
+function letterbox(amt) {
+  const h = H * 0.11 * amt;
+  ctx.fillStyle = '#05030a';
+  ctx.fillRect(0, 0, W, h + SAFE.t * amt);
+  ctx.fillRect(0, H - h - SAFE.b * amt, W, h + SAFE.b * amt);
+  return h;
+}
+function drawCine() {
+  const c = S.cine, t = c.t;
+  const amt = ease(clamp(t / 0.45, 0, 1)) * (1 - ease(clamp((t - (CINE.end - 0.45)) / 0.45, 0, 1)));
+  ctx.fillStyle = 'rgba(6,3,14,' + (0.4 * amt) + ')'; ctx.fillRect(0, 0, W, H);
+  if (c.landed && !REDUCED) { ctx.fillStyle = 'rgba(255,79,121,' + (0.08 * amt * (0.5 + 0.5 * Math.sin(t * 9))) + ')'; ctx.fillRect(0, 0, W, H); }
+  const bar = letterbox(amt);
+  if (t > CINE.roar) {
+    const k = ease(clamp((t - CINE.roar) / 0.4, 0, 1));
+    ctx.font = '100px ' + FD;
+    const room = W - SAFE.l - SAFE.r - 48;
+    const size = Math.min(120, room / ctx.measureText('DUSTZILLA').width * 100);
+    // the name card goes at whichever end of the screen the boss isn't
+    if (c.cardTop == null) c.cardTop = (c.y - 60 - cam.y) * ZS > H * 0.5;
+    const x = SAFE.l + 24 - (1 - k) * W * 0.5;
+    const y = c.cardTop ? bar + SAFE.t * amt + 34 + size * 1.12 : H - bar - SAFE.b * amt - 34;
+    ctx.globalAlpha = amt * k;
+    hudText('Boss · Wave ' + S.wave, x, y - size * 1.12, clamp(W / 55, 13, 18), C.brass, 'left', FB, '700');
+    ctx.font = size + 'px ' + FD; ctx.textAlign = 'left';
+    ctx.fillStyle = C.hurt; ctx.fillText('DUSTZILLA', x + size * 0.05, y - size * 0.22);
+    ctx.fillStyle = C.ink; ctx.fillText('DUSTZILLA', x, y - size * 0.27);
+    hudText('Upright. Bagless. Furious.', x, y + 6, clamp(W / 40, 15, 22), C.dim, 'left', FB, '600');
+    ctx.globalAlpha = 1;
+  }
+  if (t > 0.4) {
+    ctx.globalAlpha = amt * 0.8;
+    hudText(touchMode ? 'Tap to skip' : 'Click or press Space to skip', W - SAFE.r - 18, H - SAFE.b * amt - bar / 2 + 5, 13, C.dim, 'right', FB, '600');
+    ctx.globalAlpha = 1;
+  }
+}
+function drawFinaleBars() {
+  const f = S.finale;
+  const amt = f.boomed ? 1 - ease(clamp((f.t - f.boomT) / 0.5, 0, 1)) : ease(clamp(f.t / 0.35, 0, 1));
+  if (!f.boomed) { ctx.fillStyle = 'rgba(6,3,14,' + (0.25 * amt) + ')'; ctx.fillRect(0, 0, W, H); }
+  letterbox(amt);
+}
 function drawOffscreen() {
   const m = 26;
   for (const e of S.enemies) {
-    const sx = (e.x - cam.x) * SC, sy = (e.y - ET[e.t].hc - cam.y) * SC;
+    const sx = (e.x - cam.x) * ZS, sy = (e.y - ET[e.t].hc - cam.y) * ZS;
     if (sx > 0 && sx < W && sy > 0 && sy < H) continue;
     const cx = W / 2, cy = H / 2, dx = sx - cx, dy = sy - cy;
     const k = Math.min((W / 2 - m) / Math.abs(dx || 1e-6), (H / 2 - m) / Math.abs(dy || 1e-6));
@@ -1818,7 +2026,7 @@ function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = C.cap; ctx.fillRect(0, 0, W, H);
   const sh = FX.shake, sx = (Math.random() * 2 - 1) * sh, sy = (Math.random() * 2 - 1) * sh;
-  ctx.setTransform(DPR * SC, 0, 0, DPR * SC, (-cam.x * SC + sx) * DPR, (-cam.y * SC + sy) * DPR);
+  ctx.setTransform(DPR * ZS, 0, 0, DPR * ZS, (-cam.x * ZS + sx) * DPR, (-cam.y * ZS + sy) * DPR);
   drawFloor();
   drawBackWall();
   drawTelegraphs();
@@ -1838,7 +2046,10 @@ function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   if (vignette) ctx.drawImage(vignette, 0, 0, W, H);
   if (FX.hurt > 0 && !REDUCED) { ctx.fillStyle = 'rgba(255,79,121,' + (FX.hurt * 0.22) + ')'; ctx.fillRect(0, 0, W, H); }
+  if (FX.flash > 0) { ctx.fillStyle = 'rgba(255,248,235,' + (FX.flash * (REDUCED ? 0.25 : 0.85)) + ')'; ctx.fillRect(0, 0, W, H); }
   if (S.mode === 'title') return;
+  if (S.cine) { drawCine(); return; }
+  if (S.finale) { drawFinaleBars(); if (!S.finale.boomed) return; }
   drawOffscreen();
   drawHUD();
   if (S.mode === 'play') {
@@ -1860,7 +2071,15 @@ function loop(now) {
   const real = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
   let fxDt = 0;
-  if (S.mode === 'play') {
+  FX.flash = Math.max(0, FX.flash - real * 3);
+  if (S.mode === 'play' && S.cine) {
+    updCine(real);
+    fxDt = real;
+  } else if (S.mode === 'play' && S.finale && !S.finale.boomed) {
+    updFinale(real);
+    fxDt = real * 0.4;
+  } else if (S.mode === 'play') {
+    if (S.finale) updFinale(real);
     let ts = 1;
     if (S.slowmo > 0) { S.slowmo -= real; ts = 0.3; }
     const dt = Math.min(1 / 30, real) * ts;
