@@ -68,7 +68,7 @@ Common fields on every event: `e` (name), `t` (client ms), `seq`, `run` (run id,
 | `ftue_step` | the first time a device reaches a milestone (sent once per device, ever) | `step`, `index` (0–8), `minutes_since_first` |
 | `run_start` | Start or Daily pressed | `daily`, `diff`, `cat`, `skin`, `lives`, `picks` (drip carried in), `pass`, `streak`, `mod` (daily modifier) |
 | `run_retry` | boss checkpoint retry | `wave`, `score`, `daily` |
-| `run_end` | all lives gone | `score`, `wave`, `kills`, `secs`, `daily`, `diff`, `city`, `in_ride`, `cash_left`, `cash_earned`, `cash_spent`, `hits`, `gun`, `picks`, `kills_by` (JSON by enemy type), `new_best`, `beat_challenge`, `checkpoint` |
+| `run_end` | all lives gone | `score`, `wave`, `kills`, `secs`, `daily`, `diff`, `city`, `in_ride`, `cash_left`, `cash_earned`, `cash_spent`, `hits`, `gun`, `picks`, `kills_by` (JSON by enemy type), `new_best`, `beat_challenge`, `checkpoint`, `killer` (boss kind on the field at death, or empty) |
 | `wave_start` | each wave begins | `wave`, `city`, `boss` (kind or empty), `lives`, `cash`, `gun`, `picks` (count), `budget` (enemy budget) |
 | `wave_clear` | last enemy of a normal wave down | `wave`, `secs`, `lives`, `cash`, `kills`, `score`, `city` |
 | `boss_kill` | boss down | `kind`, `wave`, `secs`, `lives`, `hits`, `score` |

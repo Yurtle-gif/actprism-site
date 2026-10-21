@@ -240,7 +240,7 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
 <section id="over" class="overlay" aria-label="Game over" hidden>
   <div class="sheet">
     <p class="eyebrow" id="overEyebrow">All nine lives spent</p>
-    <h2 class="h2">Game over</h2>
+    <h2 class="h2" id="overH">Game over</h2>
     <dl class="stats">
       <div><dt>Score</dt><dd id="oScore">0</dd></div>
       <div><dt>Wave</dt><dd id="oWave">1</dd></div>
@@ -1142,12 +1142,15 @@ function pauseGame() { if (S.mode !== 'play') return; S.mode = 'paused'; showFor
 function resumeGame() { if (S.mode !== 'paused') return; S.mode = 'play'; mouse.down = false; showFor('play'); }
 function gameOver() {
   S.mode = 'over';
+  // who finished the run: the boss still standing when the last life went
+  const killer = S.enemies.find(e => e.t === 'boss' && !e.dead);
+  S.killer = S.ride ? '' : (killer ? killer.kind : '');
   S.newBest = S.score > curBest;
   if (S.tel) {
     ftue('first_death');
     TEL.track('run_end', { score: S.score, wave: S.wave, kills: S.kills, secs: Math.round((Date.now() - S.tel.started) / 1000), daily: !!S.daily, diff: S.diff, city: S.ride ? RIDE().name : SCN().name, in_ride: !!S.ride,
       cash_left: S.p.cash, cash_earned: S.tel.earned, cash_spent: S.tel.spent, hits: S.tel.hits, gun: S.p.gun, picks: Object.keys(S.p.picks).join(','), kills_by: JSON.stringify(S.tel.killsBy).slice(0, 96),
-      new_best: S.score > curBest, beat_challenge: !!S.beat, checkpoint: !!S.checkpoint });
+      new_best: S.score > curBest, beat_challenge: !!S.beat, checkpoint: !!S.checkpoint, killer: S.killer });
     TEL.flush(false);
   }
   if (S.newBest) { curBest = S.score; if (S.daily) store.set('gk.dbest.' + S.daily, curBest); else { best = curBest; store.set('gk.best', best); } }
@@ -1172,6 +1175,7 @@ function showFor(mode) {
   if (mode === 'paused') $('pauseWave').textContent = 'Wave ' + S.wave + ' · ' + D().label;
   if (mode === 'upgrade') { renderCards(); if (S.wave % 5 === 0) $('shopHint').textContent = 'Coming soon: ' + TEASER; TEL.track('shop_open', { wave: S.wave, cash: S.p.cash, offer: S.offer.join(','), prices: S.offer.map(priceOf).join(',') }); }
   if (mode === 'over') {
+    $('overH').textContent = S.killer === 'perczilla' ? 'Perc kicking yo ass' : 'Game over';
     $('oScore').textContent = fmt(S.score);
     $('oWave').textContent = S.wave;
     $('oKills').textContent = fmt(S.kills);

@@ -22,7 +22,7 @@ const EVENTS = {
   ftue_step:         ['step', 'index', 'minutes_since_first'],
   run_start:         ['daily', 'diff', 'cat', 'skin', 'lives', 'picks', 'pass', 'streak', 'mod'],
   run_retry:         ['wave', 'score', 'daily'],
-  run_end:           ['score', 'wave', 'kills', 'secs', 'daily', 'diff', 'city', 'in_ride', 'cash_left', 'cash_earned', 'cash_spent', 'hits', 'gun', 'picks', 'kills_by', 'new_best', 'beat_challenge', 'checkpoint'],
+  run_end:           ['score', 'wave', 'kills', 'secs', 'daily', 'diff', 'city', 'in_ride', 'cash_left', 'cash_earned', 'cash_spent', 'hits', 'gun', 'picks', 'kills_by', 'new_best', 'beat_challenge', 'checkpoint', 'killer'],
   wave_start:        ['wave', 'city', 'boss', 'lives', 'cash', 'gun', 'picks', 'budget'],
   wave_clear:        ['wave', 'secs', 'lives', 'cash', 'kills', 'score', 'city'],
   boss_kill:         ['kind', 'wave', 'secs', 'lives', 'hits', 'score'],
