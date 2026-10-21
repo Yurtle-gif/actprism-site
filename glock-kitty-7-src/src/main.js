@@ -689,7 +689,7 @@ function updatePlayer(dt) {
   // ---- look (applied from accumulated mouse handled in listeners) ----
   // ---- movement input ----
   const fwd = V.set(Math.sin(p.yaw), 0, Math.cos(p.yaw)).multiplyScalar(-1); // forward on xz
-  const right = V2.set(fwd.z, 0, -fwd.x);
+  const right = V2.set(-fwd.z, 0, fwd.x);   // camera right: D strafes right, A left
   let ix = 0, iz = 0;
   if (keys['KeyW']) iz += 1;
   if (keys['KeyS']) iz -= 1;
