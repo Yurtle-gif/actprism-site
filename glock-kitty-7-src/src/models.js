@@ -172,7 +172,23 @@ function heroMaterial(src) {
   m.roughness = Math.min(m.roughness ?? 1, 0.62);
   m.metalness = 0;
   m.onBeforeCompile = (shader) => {
+    // E: "make his skin yellow": recolor skin tones (warm browns: red > green
+    // > blue, moderately saturated) to cartoon yellow, keeping their shading so
+    // tattoos stay readable; pink shorts, white trims and black hair keep
+    // their colors
     shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+      {
+        vec3 c = diffuseColor.rgb;
+        float mx = max( c.r, max( c.g, c.b ) ), mn = min( c.r, min( c.g, c.b ) );
+        float sat = mx > 0.0 ? ( mx - mn ) / mx : 0.0;
+        float hue = ( c.g - c.b ) / max( c.r - c.b, 1e-4 );   // 0 red .. 1 yellow, valid when r >= g >= b
+        float skin = step( c.g, c.r ) * step( c.b, c.g ) * smoothstep( 0.08, 0.2, sat ) * smoothstep( 0.05, 0.2, hue ) * ( 1.0 - smoothstep( 0.75, 0.95, hue ) ) * smoothstep( 0.03, 0.08, mx );
+        float lum = dot( c, vec3( 0.299, 0.587, 0.114 ) );
+        vec3 yel = vec3( 1.0, 0.82, 0.08 ) * clamp( 0.35 + lum * 3.0, 0.0, 1.15 );
+        diffuseColor.rgb = mix( c, yel, skin );
+      }`).replace(
       '#include <dithering_fragment>',
       `#include <dithering_fragment>
       {
