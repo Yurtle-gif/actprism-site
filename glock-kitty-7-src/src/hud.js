@@ -31,43 +31,52 @@ export class HUD {
     this.banner = this._el('div', 'gk-banner', this.root);
     this.banner.style.display = 'none';
 
-    // Bottom-left: health + shield
+    // Bottom-left: shield over health, big number in a badge, segmented bars
     const bl = this._el('div', 'gk-vitals', this.root);
-    this.shieldWrap = this._el('div', 'gk-bar-wrap', bl);
-    this.shieldFill = this._el('div', 'gk-bar gk-shield', this.shieldWrap);
-    this.shieldTxt = this._el('div', 'gk-bar-txt', this.shieldWrap);
-    this.hpWrap = this._el('div', 'gk-bar-wrap', bl);
-    this.hpFill = this._el('div', 'gk-bar gk-hp', this.hpWrap);
-    this.hpTxt = this._el('div', 'gk-bar-txt', this.hpWrap);
+    const row = (cls, icon) => {
+      const r = this._el('div', 'gk-vrow ' + cls, bl);
+      const badge = this._el('div', 'gk-vbadge', r);
+      this._el('i', 'gk-vicon', badge, icon);
+      const num = this._el('b', 'gk-vnum', badge, '0');
+      const wrap = this._el('div', 'gk-bar-wrap', r);
+      const fill = this._el('div', 'gk-bar', wrap);
+      this._el('div', 'gk-bar-seg', wrap);
+      return { r, num, fill };
+    };
+    const sh = row('gk-vshield', '◆'), hp = row('gk-vhp', '✚');
+    this.shieldWrap = sh.r; this.shieldFill = sh.fill; this.shieldTxt = sh.num;
+    this.hpWrap = hp.r; this.hpFill = hp.fill; this.hpTxt = hp.num;
 
-    // Bottom-center: build pieces + mats
-    const bc = this._el('div', 'gk-build', this.root);
+    // Bottom-right stack: mats + build pieces above the hotbar
+    const br = this._el('div', 'gk-right', this.root);
+    const tools = this._el('div', 'gk-tools', br);
+    this.matsEl = this._el('div', 'gk-mats', tools, '<i>🧱</i><b>0</b>');
+    const bc = this._el('div', 'gk-build', tools);
     this.buildChips = {};
-    for (const [key, label, sub] of [['wall', 'Q', 'Tag Wall'], ['ramp', 'E', 'Skate Ramp'], ['floor', 'R', 'Stage Floor'], ['edit', 'F', 'Edit']]) {
+    for (const [key, label, sub] of [['wall', 'Q', 'Wall'], ['ramp', 'E', 'Ramp'], ['floor', 'R', 'Floor'], ['edit', 'F', 'Edit']]) {
       const chip = this._el('div', 'gk-chip', bc);
       this._el('div', 'gk-chip-key', chip, label);
       this._el('div', 'gk-chip-sub', chip, sub);
       this.buildChips[key] = chip;
     }
-    this.matsEl = this._el('div', 'gk-mats', bc, '🧱 <b>0</b>');
-
-    // Bottom-right: hotbar
-    const br = this._el('div', 'gk-hotbar', this.root);
+    const hb = this._el('div', 'gk-hotbar', br);
     this.slots = [];
     for (let i = 0; i < 5; i++) {
-      const s = this._el('div', 'gk-slot', br);
+      const s = this._el('div', 'gk-slot', hb);
       this._el('div', 'gk-slot-num', s, String(i + 1));
-      const name = this._el('div', 'gk-slot-name', s, '—');
       const ammo = this._el('div', 'gk-slot-ammo', s, '');
+      const name = this._el('div', 'gk-slot-name', s, '');
       this.slots.push({ el: s, name, ammo });
     }
 
-    // Top-right: minimap + alive
+    // Top-right: minimap, then players left / eliminations
     const tr = this._el('div', 'gk-topright', this.root);
-    this.aliveEl = this._el('div', 'gk-alive', tr, '<span>ALIVE</span><b>12</b>');
     this.miniCanvas = this._el('canvas', 'gk-mini', tr);
     this.miniCanvas.width = 176; this.miniCanvas.height = 176;
     this.mctx = this.miniCanvas.getContext('2d');
+    const stats = this._el('div', 'gk-stats', tr);
+    this.aliveEl = this._el('div', 'gk-statbox', stats, '<i>👤</i><b>12</b>');
+    this.killsEl = this._el('div', 'gk-statbox', stats, '<i>🎯</i><b>0</b>');
 
     // Top-left: killfeed
     this.feed = this._el('div', 'gk-feed', this.root);
@@ -84,16 +93,18 @@ export class HUD {
   setHealth(hp, max) {
     hp = Math.max(0, Math.round(hp));
     this.hpFill.style.width = (100 * hp / max) + '%';
-    this.hpTxt.textContent = hp + ' HP';
+    this.hpTxt.textContent = hp;
+    this.hpWrap.classList.toggle('low', hp <= max * 0.25);
   }
   setShield(s, max) {
     s = Math.max(0, Math.round(s));
     this.shieldFill.style.width = (100 * s / max) + '%';
     this.shieldTxt.textContent = s;
-    this.shieldWrap.style.opacity = s > 0 ? '1' : '0.4';
+    this.shieldWrap.classList.toggle('empty', s <= 0);
   }
   setMats(n) { this.matsEl.querySelector('b').textContent = Math.floor(n); }
   setAlive(n) { this.aliveEl.querySelector('b').textContent = n; }
+  setKills(n) { if (n !== this._kills) { this._kills = n; this.killsEl.querySelector('b').textContent = n; } }
 
   setHotbar(slots, active, buildMode) {
     for (let i = 0; i < 5; i++) {
@@ -101,21 +112,20 @@ export class HUD {
       const item = slots[i];
       s.el.classList.toggle('active', i === active && !buildMode);
       if (!item) {
-        s.el.style.borderColor = 'rgba(255,255,255,0.14)';
-        s.el.style.boxShadow = 'none';
-        s.name.textContent = '—';
-        s.name.style.color = '#8891a0';
+        s.el.classList.add('empty');
+        s.el.style.removeProperty('--rc');
+        s.name.textContent = '';
         s.ammo.textContent = '';
         continue;
       }
-      let col = '#cfd6de';
-      if (item.kind === 'gun') col = item.color || RARITY[item.rarity]?.color || '#cfd6de';
+      s.el.classList.remove('empty');
+      // slot background takes the item's rarity color, like a loot tile
+      let col = '#8f9aa8';
+      if (item.kind === 'gun') col = item.color || RARITY[item.rarity]?.color || col;
       else if (item.kind === 'heal') col = '#ff5fd0';
-      else if (item.kind === 'melee') col = '#9ad7ff';
-      s.el.style.borderColor = col;
-      s.el.style.boxShadow = (i === active && !buildMode) ? `0 0 14px ${col}` : `0 0 6px ${col}55`;
+      else if (item.kind === 'melee') col = '#5fa8ff';
+      s.el.style.setProperty('--rc', col);
       s.name.textContent = item.shortName || item.name;
-      s.name.style.color = col;
       if (item.kind === 'gun') s.ammo.textContent = item.ammoInMag + ' / ' + item.mag;
       else if (item.kind === 'heal') s.ammo.textContent = 'x' + (item.count || 1);
       else s.ammo.textContent = '';
@@ -148,8 +158,9 @@ export class HUD {
 
   banner_(text, color, ms = 2600) {
     this.banner.style.display = 'block';
-    this.banner.style.color = color || '#ff5fd0';
-    this.banner.textContent = text;
+    this.banner.style.setProperty('--bc', color || '#ff5fd0');
+    this.banner.innerHTML = '<span>' + text + '</span>';
+    this.banner.classList.remove('in'); void this.banner.offsetWidth; this.banner.classList.add('in');
     clearTimeout(this._bT);
     this._bT = setTimeout(() => { this.banner.style.display = 'none'; }, ms);
   }
@@ -179,8 +190,11 @@ export class HUD {
     const scale = (W * 0.5) / state.mapHalf; // world -> mini
     c.clearRect(0, 0, W, H);
     c.save();
-    c.beginPath(); c.arc(W / 2, H / 2, W / 2 - 1, 0, Math.PI * 2); c.clip();
-    c.fillStyle = '#0a0617'; c.fillRect(0, 0, W, H);
+    const rr = () => { c.beginPath(); if (c.roundRect) c.roundRect(1, 1, W - 2, H - 2, 14); else c.rect(1, 1, W - 2, H - 2); };
+    rr(); c.clip();
+    c.fillStyle = '#120a26'; c.fillRect(0, 0, W, H);
+    c.strokeStyle = 'rgba(255,255,255,0.06)'; c.lineWidth = 1;
+    for (let g = W / 8; g < W; g += W / 8) { c.beginPath(); c.moveTo(g, 0); c.lineTo(g, H); c.moveTo(0, g); c.lineTo(W, g); c.stroke(); }
     const toX = (wx) => W / 2 + wx * scale;
     const toY = (wz) => H / 2 + wz * scale;
     // POIs
@@ -219,9 +233,9 @@ export class HUD {
     c.beginPath(); c.moveTo(0, -5); c.lineTo(4, 4); c.lineTo(-4, 4); c.closePath(); c.fill();
     c.restore();
     c.restore();
-    // ring border
-    c.strokeStyle = 'rgba(255,95,208,0.8)'; c.lineWidth = 2;
-    c.beginPath(); c.arc(W / 2, H / 2, W / 2 - 1, 0, Math.PI * 2); c.stroke();
+    // grid + border
+    c.strokeStyle = 'rgba(255,255,255,0.85)'; c.lineWidth = 2;
+    rr(); c.stroke();
   }
 
   showScreen(kind, data) {

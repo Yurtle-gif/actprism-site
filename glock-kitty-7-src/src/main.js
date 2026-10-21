@@ -1708,6 +1708,7 @@ function update(dt) {
   hud.setHealth(player.hp, player.maxHp);
   hud.setShield(player.shield, player.maxShield);
   hud.setMats(player.mats);
+  hud.setKills(player.kills);
   hud.setHotbar(player.hotbar, player.active, build.selected != null);
   // crosshair spread
   const item = activeItem();
