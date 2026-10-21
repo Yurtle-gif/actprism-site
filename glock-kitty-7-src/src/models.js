@@ -74,6 +74,7 @@ function makeLoader() {
 export async function loadArt(renderer) {
   const loader = makeLoader();
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  maxAniso = Math.min(16, renderer.capabilities.getMaxAnisotropy());
   const texLoader = new THREE.TextureLoader();
   const texJobs = Object.entries(TEX_URLS).map(async ([k, url]) => {
     try {
@@ -152,20 +153,78 @@ function prepCharacter(name, gltf) {
   charData[name] = { gltf, scale: CHAR_HEIGHT / h, minY: box.min.y * (CHAR_HEIGHT / h) };
 }
 
+// ------------------------------------------------- character look ("HD")
+// The night scene is dark, so characters get their own treatment to pop like
+// a hero skin: sharper texture filtering, a two-tone rim light (pink from the
+// left, cyan from the right, by screen side), a soft wrap fill so the shadow
+// side never goes muddy, and a thin ink outline (inverted hull, skinned).
+const heroMats = new Map();
+let maxAniso = 8;
+function heroMaterial(src) {
+  if (heroMats.has(src)) return heroMats.get(src);
+  const m = src.clone();
+  if (m.map) {
+    m.map.anisotropy = maxAniso;
+    m.map.minFilter = THREE.LinearMipmapLinearFilter;
+    m.map.needsUpdate = true;
+  }
+  m.envMapIntensity = 1.5;
+  m.roughness = Math.min(m.roughness ?? 1, 0.62);
+  m.metalness = 0;
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>
+      {
+        vec3 vd = normalize( vViewPosition );
+        float ndv = clamp( dot( vd, normal ), 0.0, 1.0 );
+        float rim = smoothstep( 0.55, 0.95, 1.0 - ndv );
+        vec3 rimCol = mix( vec3( 1.0, 0.35, 0.8 ), vec3( 0.35, 0.9, 1.0 ), step( 0.0, normal.x ) );
+        float lift = 0.5 + 0.5 * normal.y;
+        vec3 base = diffuseColor.rgb;
+        gl_FragColor.rgb += base * 0.16 * lift + rimCol * rim * 0.55;
+      }`);
+  };
+  m.customProgramCacheKey = () => 'gk-hero';
+  heroMats.set(src, m);
+  return m;
+}
+const outlineMat = new THREE.MeshBasicMaterial({ color: 0x0b0614, side: THREE.BackSide });
+outlineMat.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <project_vertex>',
+    `#include <project_vertex>
+    {
+      vec3 nV = normalize( ( modelViewMatrix * vec4( objectNormal, 0.0 ) ).xyz );
+      gl_Position.xy += normalize( nV.xy + 1e-5 ) * 0.0035 * min( gl_Position.w, 5.0 );
+    }`);
+};
+outlineMat.customProgramCacheKey = () => 'gk-outline';
+function addOutline(mesh) {
+  const o = new THREE.SkinnedMesh(mesh.geometry, outlineMat);
+  o.bind(mesh.skeleton, mesh.bindMatrix);
+  o.position.copy(mesh.position); o.quaternion.copy(mesh.quaternion); o.scale.copy(mesh.scale);
+  o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
+  o.userData.outline = true;
+  mesh.parent.add(o);
+}
+
 export function makeCharacter(name) {
   const cd = charData[name];
   if (!cd) return null;
   const model = skeletonClone(cd.gltf.scene);
   model.scale.setScalar(cd.scale);
   model.position.y = -cd.minY;
-  const bones = {};
+  const bones = {}, skinned = [];
   model.traverse((o) => {
     if (o.isBone) bones[o.name] = o;
     if (o.isMesh) {
       o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
-      if (o.material) o.material.envMapIntensity = 1.2;
+      if (o.material) o.material = heroMaterial(o.material);
+      if (o.isSkinnedMesh) skinned.push(o);
     }
   });
+  for (const o of skinned) addOutline(o);
   const rest = {};
   for (const [k, b] of Object.entries(bones)) rest[k] = b.quaternion.clone();
   const root = new THREE.Group(); root.add(model);
@@ -194,39 +253,78 @@ export function setAnim(ch, name, timeScale = 1, fade = 0.18) {
   ch.cur = name;
 }
 
-// Upper-body aim: straighten the right arm (and bring the left hand in to
-// support) along a world-space aim direction, layered on top of whatever clip
-// is playing. Call after mixer.update() and root.updateMatrixWorld(true).
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d0 = new THREE.Vector3(), _d1 = new THREE.Vector3();
+// Upper-body aim: two-bone IK on each arm, layered on top of whatever clip is
+// playing. The right hand holds the grip in front of the chest with the elbow
+// bent down and out; the left hand reaches the foregrip just ahead of it.
+// Call after mixer.update() and root.updateMatrixWorld(true).
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _e = new THREE.Vector3();
+const _n = new THREE.Vector3(), _p = new THREE.Vector3(), _t = new THREE.Vector3(), _d0 = new THREE.Vector3(), _d1 = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion();
-function aimBone(bone, tip, dirWorld, rest, foreName, handName, bones) {
-  if (bones[foreName] && rest[foreName]) bones[foreName].quaternion.copy(rest[foreName]);
-  if (bones[handName] && rest[handName]) bones[handName].quaternion.copy(rest[handName]);
-  bone.updateMatrixWorld(true);
-  bone.getWorldPosition(_a); tip.getWorldPosition(_b);
-  _d0.subVectors(_b, _a).normalize();
+const _side = new THREE.Vector3(), _UP = new THREE.Vector3(0, 1, 0);
+// rotate bone in world space so the direction from -> to turns onto dirWorld
+function swingBone(bone, from, to, dirWorld) {
+  _d0.subVectors(to, from).normalize();
   _q.setFromUnitVectors(_d0, dirWorld);
   bone.getWorldQuaternion(_qw);
   bone.parent.getWorldQuaternion(_qp);
   bone.quaternion.copy(_qp.invert().multiply(_q.multiply(_qw)));
   bone.updateMatrixWorld(true);
 }
-const _dir = new THREE.Vector3();
+function solveArm(B, rest, side, target, pole) {
+  const up = B[side + 'Arm'], fore = B[side + 'ForeArm'], hand = B[side + 'Hand'];
+  if (!up || !fore || !hand) return false;
+  // start from the bind pose so the result doesn't drift with the clip
+  up.quaternion.copy(rest[side + 'Arm']); fore.quaternion.copy(rest[side + 'ForeArm']); hand.quaternion.copy(rest[side + 'Hand']);
+  up.updateMatrixWorld(true);
+  up.getWorldPosition(_a); fore.getWorldPosition(_b); hand.getWorldPosition(_c);
+  const l1 = _a.distanceTo(_b), l2 = _b.distanceTo(_c);
+  _n.subVectors(target, _a);
+  const d = THREE.MathUtils.clamp(_n.length(), Math.abs(l1 - l2) + 1e-3, (l1 + l2) * 0.999);
+  _n.normalize();
+  const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+  _p.copy(pole).addScaledVector(_n, -pole.dot(_n));
+  if (_p.lengthSq() < 1e-6) _p.set(0, -1, 0).addScaledVector(_n, _n.y);
+  _p.normalize();
+  _e.copy(_a).addScaledVector(_n, along).addScaledVector(_p, h);   // elbow
+  _t.copy(_a).addScaledVector(_n, d);                               // reachable hand point
+  swingBone(up, _a, _b, _d1.subVectors(_e, _a).normalize());
+  fore.getWorldPosition(_b); hand.getWorldPosition(_c);
+  swingBone(fore, _b, _c, _d1.subVectors(_t, _b).normalize());
+  return true;
+}
+const _dir = new THREE.Vector3(), _pole = new THREE.Vector3(), _grip = new THREE.Vector3(), _sh = new THREE.Vector3();
 // target: a world point to aim at (isDir=false) or a world direction (isDir=true)
 export function aimArms(ch, target, twoHanded = true, isDir = false) {
-  const B = ch.bones;
-  const ra = B.RightArm, rh = B.RightHand, la = B.LeftArm, lh = B.LeftHand;
-  if (!ra || !rh) return null;
+  const B = ch.bones, R = ch.rest;
+  const ra = B.RightArm, rh = B.RightHand, la = B.LeftArm;
+  if (!ra || !rh || !B.RightForeArm) return null;
+  ra.getWorldPosition(_sh);
   if (isDir) _dir.copy(target).normalize();
-  else { ra.getWorldPosition(_a); _dir.subVectors(target, _a).normalize(); }
-  const aimDir = _dir;
-  aimBone(ra, rh, aimDir, ch.rest, 'RightForeArm', 'RightHand', B);
-  if (twoHanded && la && lh) {
-    rh.getWorldPosition(_b); la.getWorldPosition(_a);
-    _d1.subVectors(_b, _a).addScaledVector(aimDir, 0.05).normalize();
-    aimBone(la, lh, _d1, ch.rest, 'LeftForeArm', 'LeftHand', B);
+  else _dir.subVectors(target, _sh).normalize();
+  const reach = B.RightForeArm.getWorldPosition(_a).distanceTo(_sh) + rh.getWorldPosition(_b).distanceTo(_a);
+  _side.crossVectors(_dir, _UP);
+  if (_side.lengthSq() < 1e-6) _side.set(1, 0, 0);
+  _side.normalize();                                 // character's right
+  if (twoHanded) {
+    // grip sits in front of the right side of the chest, a little low and in
+    _grip.copy(_sh).addScaledVector(_dir, reach * 0.62).addScaledVector(_side, -reach * 0.22);
+    _grip.y -= reach * 0.12;
+    _pole.set(0, -1, 0).addScaledVector(_side, 0.7).addScaledVector(_dir, -0.4);
+  } else {
+    // one-handed (melee swing): nearly straight arm along the direction
+    _grip.copy(_sh).addScaledVector(_dir, reach * 0.92);
+    _pole.set(0, -1, 0).addScaledVector(_side, 0.5).addScaledVector(_dir, -0.6);
   }
-  return aimDir;
+  solveArm(B, R, 'Right', _grip, _pole);
+  if (twoHanded && la) {
+    rh.getWorldPosition(_b);
+    _grip.copy(_b).addScaledVector(_dir, reach * 0.38);
+    _grip.y -= reach * 0.04;
+    _pole.set(0, -1, 0).addScaledVector(_side, -0.35).addScaledVector(_dir, -0.2);
+    solveArm(B, R, 'Left', _grip, _pole);
+  }
+  return _dir;
 }
 
 // ---------------------------------------------------------------- facades

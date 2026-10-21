@@ -1774,6 +1774,12 @@ let stormVignette;
 async function init() {
   const canvas = document.getElementById('game');
   renderer = createRenderer(canvas);
+  // if the GPU drops the context (out of memory, tab backgrounded on a phone) say so instead of freezing on a black frame
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault(); running = false;
+    const o = document.getElementById('overlay');
+    if (o) o.innerHTML = `<div style="position:absolute;inset:0;display:flex;flex-direction:column;gap:18px;align-items:center;justify-content:center;color:#ff5fd0;font:700 18px system-ui,sans-serif;text-align:center;padding:40px;background:#07051acc">The graphics card ran out of memory.<button onclick="location.reload()" style="font:700 16px system-ui;padding:10px 22px;border-radius:10px;border:0;background:#ff5fd0;color:#07051a">RELOAD</button></div>`;
+  });
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(70, W / H, 0.1, 1000);
   camera.position.set(0, 10, 20);
