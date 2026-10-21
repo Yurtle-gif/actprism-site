@@ -8,6 +8,7 @@ import {
   RARITY, GUN_IDS, MELEE, HEALS, makeWeapon, rollRarity, CONFIG, POIS,
 } from './config.js';
 import { AudioSynth } from './audio.js';
+import { loadArt, hasModel, makeProp, makeCharacter, setAnim, aimArms, tiledBox, ART } from './models.js';
 import { HUD } from './hud.js';
 
 // ---------------------------------------------------------------- utilities
@@ -159,11 +160,14 @@ function buildWorld() {
 
   const camo = makeCamoTexture(512);
   // POI building clusters
+  let poiIdx = 0;
   for (const poi of POIS) {
     const count = 5 + (Math.random() * 4 | 0);
+    const mainFront = FRONTS[poiIdx++ % FRONTS.length];
     for (let i = 0; i < count; i++) {
       const bw = rand(6, 14), bd = rand(6, 14), bh = rand(8, 26);
       const bx = poi.x + rand(-26, 26), bz = poi.z + rand(-26, 26);
+      if (addFacadeBuilding(bx, bz, bw, bd, bh, Math.random() < 0.7 ? mainFront : pick(FRONTS), poi)) continue;
       const neon = pick([0xff5fd0, 0x5fe0ff, 0xb6ff3a, 0xb24bff]);
       const mat = makeStylized(
         { color: 0x1c1430, roughness: 0.6, metalness: 0.3, emissive: neon, emissiveIntensity: 0.0 },
@@ -190,8 +194,21 @@ function buildWorld() {
 
   // scatter harvestable props
   for (let i = 0; i < 120; i++) {
-    const x = rand(-CONFIG.mapHalf + 10, CONFIG.mapHalf - 10);
-    const z = rand(-CONFIG.mapHalf + 10, CONFIG.mapHalf - 10);
+    let x = rand(-CONFIG.mapHalf + 10, CONFIG.mapHalf - 10);
+    let z = rand(-CONFIG.mapHalf + 10, CONFIG.mapHalf - 10);
+    for (let tries = 0; tries < 8 && insideSolid(x, z, 2.5); tries++) {
+      x = rand(-CONFIG.mapHalf + 10, CONFIG.mapHalf - 10); z = rand(-CONFIG.mapHalf + 10, CONFIG.mapHalf - 10);
+    }
+    const art = pickStreetProp();
+    if (art) {
+      const g = makeProp(art.m, art.o);
+      if (g) {
+        g.position.set(x, 0, z); g.rotation.y = rand(0, Math.PI * 2);
+        g.userData.prop = { hp: art.hp, mats: art.mats };
+        propsGroup.add(g);
+        continue;
+      }
+    }
     const kind = pick(['crate', 'can', 'car', 'amp']);
     let mesh, mats, hp;
     if (kind === 'crate') {
@@ -213,12 +230,137 @@ function buildWorld() {
   }
 
   buildHighway();
+  buildStreetDecor();
+  buildSkyline();
 
   // flavor: tour blimp high above
   const blimp = new THREE.Mesh(new THREE.CapsuleGeometry(6, 16, 8, 16),
     makeStylized({ color: 0xff5fd0, roughness: 0.4, emissive: 0xff5fd0, emissiveIntensity: 0.5 }, { color: 0x5fe0ff, strength: 0.6 }));
   blimp.rotation.z = Math.PI / 2; blimp.position.set(0, 110, 30);
   worldGroup.add(blimp);
+}
+
+// ---- Flock Kitty city art: painted storefront strips, tiled upper floors, rooftop ads
+const FRONTS = ['front_sf', 'front_oak', 'front_sj'];
+const FRONT_ASPECT = { front_sf: 1280 / 477, front_oak: 1280 / 455, front_sj: 1280 / 493 };
+const facadeMats = {};
+let roofMat, bbMat, bbBackMat;
+function facadeMat(key, glow) {
+  if (!facadeMats[key]) {
+    const t = ART.tex[key];
+    facadeMats[key] = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: glow, roughness: 0.85, metalness: 0.05 });
+  }
+  return facadeMats[key];
+}
+function insideSolid(x, z, pad) {
+  for (const s of solids) if (x > s.minx - pad && x < s.maxx + pad && z > s.minz - pad && z < s.maxz + pad) return true;
+  return false;
+}
+function addFacadeBuilding(bx, bz, bw, bd, bh, frontKey, poi) {
+  if (!ART.tex[frontKey] || !ART.tex.up_brick || !ART.tex.up_glass) return false;
+  roofMat = roofMat || makeStylized({ color: 0x221a30, roughness: 0.9 }, { color: 0xb24bff, power: 3, strength: 0.25 });
+  const bandH = 5.2;
+  const front = facadeMat(frontKey, 0.6);
+  const band = new THREE.Mesh(tiledBox(bw + 0.08, bandH, bd + 0.08, bandH * FRONT_ASPECT[frontKey], bandH, Math.random()),
+    [front, front, roofMat, roofMat, front, front]);
+  band.position.set(bx, bandH / 2, bz);
+  const upKey = bh > 17 ? 'up_glass' : 'up_brick';
+  const up = facadeMat(upKey, upKey === 'up_glass' ? 0.5 : 0.35);
+  const tile = upKey === 'up_glass' ? 7 : 6;
+  const uh = bh - bandH;
+  const upper = new THREE.Mesh(tiledBox(bw, uh, bd, tile, tile, Math.random()), [up, up, roofMat, roofMat, up, up]);
+  upper.position.set(bx, bandH + uh / 2, bz);
+  for (const m of [band, upper]) { m.castShadow = true; m.receiveShadow = true; hitWorld.add(m); }
+  addSolid(bx, bz, bw / 2, bd / 2, 0, bh, upper);
+  tops.push({ minx: bx - bw / 2, maxx: bx + bw / 2, minz: bz - bd / 2, maxz: bz + bd / 2, top: bh });
+  if (ART.tex.billboard && Math.random() < 0.45) addBillboard(bx, bz, bw, bd, bh, poi);
+  return true;
+}
+function addBillboard(bx, bz, bw, bd, bh, poi) {
+  bbMat = bbMat || new THREE.MeshStandardMaterial({ map: ART.tex.billboard, emissiveMap: ART.tex.billboard, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.6 });
+  bbBackMat = bbBackMat || new THREE.MeshStandardMaterial({ color: 0x151020, roughness: 0.7, metalness: 0.5 });
+  const dx = poi.x - bx, dz = poi.z - bz;
+  const alongX = Math.abs(dx) > Math.abs(dz);
+  const side = (alongX ? Math.sign(dx) : Math.sign(dz)) || 1;
+  const span = alongX ? bd : bw;
+  const w = Math.min(span * 0.9, 10), h = w / (768 / 430);
+  const g = new THREE.Group();
+  const back = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, h + 0.3, 0.12), bbBackMat);
+  back.position.set(0, 1.6 + h / 2, 0); g.add(back);
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(w, h), bbMat);
+  panel.position.set(0, 1.6 + h / 2, 0.07); g.add(panel);
+  for (const px of [-w * 0.3, w * 0.3]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.7, 0.25), bbBackMat);
+    post.position.set(px, 0.85, -0.1); g.add(post);
+  }
+  if (alongX) { g.position.set(bx + side * (bw / 2 - 0.5), bh, bz); g.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; }
+  else { g.position.set(bx, bh, bz + side * (bd / 2 - 0.5)); g.rotation.y = side > 0 ? 0 : Math.PI; }
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  worldGroup.add(g);
+}
+const STREET_PROPS = [
+  { m: 'dumpster', o: { len: 2.6 }, mats: 28, hp: 80, w: 3 },
+  { m: 'barrier', o: { len: 2.4 }, mats: 20, hp: 60, w: 3 },
+  { m: 'cone', o: { h: 0.9 }, mats: 8, hp: 25, w: 3 },
+  { m: 'hydrant', o: { h: 1.0 }, mats: 12, hp: 40, w: 3 },
+  { m: 'bench', o: { len: 2.2 }, mats: 16, hp: 50, w: 3 },
+  { m: 'lambo_green', o: { len: 4.8 }, mats: 36, hp: 120, w: 1 },
+  { m: 'lambo_orange', o: { len: 4.8 }, mats: 36, hp: 120, w: 1 },
+  { m: 'gwagon', o: { len: 4.9 }, mats: 40, hp: 140, w: 1 },
+  { m: 'cruiser', o: { len: 5.1 }, mats: 36, hp: 120, w: 1 },
+];
+function pickStreetProp() {
+  const avail = STREET_PROPS.filter((p) => hasModel(p.m));
+  if (!avail.length) return null;
+  let t = Math.random() * avail.reduce((a, p) => a + p.w, 0);
+  for (const p of avail) { t -= p.w; if (t <= 0) return p; }
+  return avail[0];
+}
+function placeDecor(name, opts, x, z, rotY) {
+  const g = makeProp(name, opts);
+  if (!g) return null;
+  g.position.set(x, 0, z); g.rotation.y = rotY ?? rand(0, Math.PI * 2);
+  worldGroup.add(g);
+  return g;
+}
+function buildStreetDecor() {
+  // palms + cam poles around every POI, trees across the island, lamps on the expressway
+  for (const poi of POIS) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + rand(-0.2, 0.2), r = rand(30, 38);
+      const x = poi.x + Math.cos(a) * r, z = poi.z + Math.sin(a) * r;
+      if (!insideSolid(x, z, 1.5)) placeDecor('palm', { h: rand(8, 11) }, x, z);
+    }
+    for (let i = 0; i < 2; i++) {
+      const x = poi.x + rand(-20, 20), z = poi.z + rand(-20, 20);
+      if (!insideSolid(x, z, 1)) placeDecor('campole', { h: 3.6 }, x, z);
+    }
+  }
+  for (let i = 0; i < 26; i++) {
+    const x = rand(-CONFIG.mapHalf + 12, CONFIG.mapHalf - 12), z = rand(-CONFIG.mapHalf + 12, CONFIG.mapHalf - 12);
+    if (Math.abs(x - 20) < 12 || insideSolid(x, z, 2)) continue;
+    placeDecor('tree', { h: rand(5.5, 7.5) }, x, z);
+  }
+  if (hasModel('lamp')) {
+    for (let z = -CONFIG.mapHalf + 25; z < CONFIG.mapHalf; z += 45) {
+      placeDecor('lamp', { h: 6.5 }, 20 - 7.2, z, -Math.PI / 2).position.y = 9.3;
+      placeDecor('lamp', { h: 6.5 }, 20 + 7.2, z + 22, Math.PI / 2).position.y = 9.3;
+    }
+  }
+}
+function buildSkyline() {
+  // the dark bay all around the island, then the painted Flock Kitty skyline on the horizon
+  const bay = new THREE.Mesh(new THREE.CircleGeometry(900, 48), new THREE.MeshStandardMaterial({ color: 0x0c0718, roughness: 0.35, metalness: 0.6 }));
+  bay.rotation.x = -Math.PI / 2; bay.position.y = -0.25;
+  worldGroup.add(bay);
+  const t = ART.tex.skyline;
+  if (!t) return;
+  const R = 420, reps = 7, tileW = (2 * Math.PI * R) / reps, H = tileW / (2048 / 852);
+  t.repeat.set(reps, 1);
+  const sky = new THREE.Mesh(new THREE.CylinderGeometry(R, R, H, 96, 1, true),
+    new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false, color: 0xd8cfff }));
+  sky.position.y = H / 2 - 8; sky.renderOrder = -1;
+  worldGroup.add(sky);
 }
 
 function buildHighway() {
@@ -263,14 +405,30 @@ function buildHighway() {
     boostPads.push({ x: 20, z, r: 8 });
   }
 
-  // moving traffic
-  for (let i = 0; i < 6; i++) {
+  // moving traffic: the Flock Kitty cars when the art loaded, neon boxes otherwise
+  const CAR_MODELS = ['lambo_green', 'lambo_orange', 'gwagon', 'cruiser'].filter(hasModel);
+  for (let i = 0; i < 8 && CAR_MODELS.length; i++) {
+    const dirSign = i % 2 ? 1 : -1;
+    const model = makeProp(CAR_MODELS[i % CAR_MODELS.length], { len: 5.0 });
+    if (!model) continue;
+    const car = new THREE.Group(); car.add(model);
+    model.rotation.y = dirSign > 0 ? -Math.PI / 2 : Math.PI / 2; // model noses point +x
+    const dims = model.userData.dims;
+    car.userData.hw = dims.z / 2 + 0.1; car.userData.hl = dims.x / 2; car.userData.h = dims.y;
+    car.position.set(i % 2 ? 24 : 16, roadY + 0.3, rand(-len / 2, len / 2));
+    car.userData.speed = dirSign * rand(22, 34);
+    worldGroup.add(car);
+    vehicles.push(car);
+  }
+  const boxTraffic = !vehicles.length;
+  for (let i = 0; i < 6 && boxTraffic; i++) {
     const col = pick([0xff5fd0, 0x5fe0ff, 0xffc23d, 0xb24bff]);
     const car = new THREE.Mesh(new THREE.BoxGeometry(3, 1.6, 6),
       makeStylized({ color: 0x15101f, roughness: 0.3, metalness: 0.6, emissive: col, emissiveIntensity: 0.5 }, { color: col, strength: 0.6 }));
     const lane = i % 2 ? 24 : 16;
     car.position.set(lane, roadY + 1.1, rand(-len / 2, len / 2));
     car.userData.speed = (i % 2 ? 1 : -1) * rand(22, 34);
+    car.userData.hw = 1.5; car.userData.hl = 3; car.userData.h = 1.6; car.userData.box = true;
     car.castShadow = true;
     worldGroup.add(car);
     vehicles.push(car);
@@ -402,12 +560,101 @@ function buildGunMesh(color) {
   return grp;
 }
 
+// ---- realistic rigged cat from the Flock Kitty art (player + Snow)
+function buildRealCat(name, opts = {}) {
+  const ch = makeCharacter(name);
+  if (!ch) return null;
+  const g = new THREE.Group();
+  g.add(ch.root);
+  const parts = { dreads: [], legs: [], arms: [] };
+  const gun = buildGunMesh(opts.gunColor ?? 0xb9c4cf);
+  gun.scale.setScalar(0.85);
+  g.add(gun); parts.gun = gun;
+  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.45),
+    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  flash.position.set(0, 0.03, 0.78); gun.add(flash); parts.flash = flash;
+  const board = new THREE.Group();
+  board.add(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 1.2),
+    makeStylized({ color: 0x120a1e, roughness: 0.3, metalness: 0.4, emissive: 0xff5fd0, emissiveIntensity: 0.5 }, { color: 0xff5fd0, strength: 0.7 })));
+  for (const dz of [-0.4, 0.4]) for (const dx of [-0.16, 0.16]) {
+    const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 10),
+      new THREE.MeshStandardMaterial({ color: 0x5fe0ff, emissive: 0x5fe0ff, emissiveIntensity: 1.5 }));
+    wh.rotation.z = Math.PI / 2; wh.position.set(dx, -0.09, dz); board.add(wh);
+  }
+  board.position.set(0, 1.2, -0.26); board.rotation.x = Math.PI / 2;
+  g.add(board); parts.board = board;
+  const deckMelee = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.07, 1.0),
+    makeStylized({ color: 0x120a1e, emissive: 0xb6ff3a, emissiveIntensity: 0.6 }, { color: 0xb6ff3a, strength: 0.6 }));
+  deckMelee.visible = false; g.add(deckMelee); parts.deckMelee = deckMelee;
+  return { group: g, parts, char: ch };
+}
+const _hp = new THREE.Vector3(), _hp2 = new THREE.Vector3(), _hd = new THREE.Vector3();
+const _hm = new THREE.Matrix4(), _hq = new THREE.Quaternion(), _hq2 = new THREE.Quaternion(), _ZERO = new THREE.Vector3();
+// put a child of a character group at a world position, +z pointing along a world direction
+function placeHeld(obj, pos, dir) {
+  const parent = obj.parent;
+  _hm.copy(parent.matrixWorld).invert();
+  obj.position.copy(pos).applyMatrix4(_hm);
+  _hm.lookAt(dir, _ZERO, UP);
+  _hq.setFromRotationMatrix(_hm);
+  parent.getWorldQuaternion(_hq2);
+  obj.quaternion.copy(_hq2.invert().multiply(_hq));
+}
+// gun / deck follow the right hand: along the aim when aiming, low-ready otherwise
+function poseHeld(parts, ch, aimDir, faceDir) {
+  const hand = ch.bones.RightHand;
+  if (!hand) return;
+  hand.getWorldPosition(_hp);
+  if (aimDir) _hd.copy(aimDir);
+  else { _hd.copy(faceDir); _hd.y -= 0.6; _hd.normalize(); }
+  if (parts.gun.visible) {
+    _hp2.copy(_hp).addScaledVector(_hd, 0.08); _hp2.y += 0.03;
+    placeHeld(parts.gun, _hp2, _hd);
+  }
+  if (parts.deckMelee.visible) {
+    _hp2.copy(_hp).addScaledVector(_hd, 0.42);
+    placeHeld(parts.deckMelee, _hp2, _hd);
+  }
+}
+const _aimPt = new THREE.Vector3(), _fd = new THREE.Vector3(), _sw = new THREE.Vector3();
+function animatePlayerChar(p, dt, speed, isGun, isMelee) {
+  const ch = p.char;
+  p.airT = p.onGround ? 0 : (p.airT || 0) + dt;
+  if (speed > 0.6 || !p.onGround || fireDown || p.skating) p.emote = false;
+  let st = 'idle', ts = 1;
+  if (p.freefall) st = 'fall';
+  else if (!p.onGround) st = p.airT < 1.1 ? 'jump' : 'fall';
+  else if (p.emote) st = 'dance';
+  else if (p.skating) st = 'idle';
+  else if (speed > 3.2) { st = 'run'; ts = clamp(speed / 8.5, 0.8, 1.3); }
+  else if (speed > 0.5) { st = 'walk'; ts = clamp(speed / 2.6, 0.7, 1.4); }
+  setAnim(ch, st, ts);
+  if (p.emote) { p.parts.gun.visible = false; p.parts.deckMelee.visible = false; }
+  ch.root.position.y = p.skating ? 0.16 : 0;
+  ch.mixer.update(dt);
+  p.group.updateMatrixWorld(true);
+  _fd.set(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
+  let aimDir = null;
+  const sprinting = p.sprint && speed > 7 && !fireDown && !adsDown;
+  if (isGun && !p.freefall && !p.emote && p.healT <= 0 && !sprinting) {
+    getForward(_aimPt).multiplyScalar(60).add(camera.position);
+    aimDir = aimArms(ch, _aimPt, true);
+  } else if (isMelee && p.meleeT > 0) {
+    const k = clamp(p.meleeT / 0.2, 0, 1); // 1 -> 0 over the swing: overhead to low
+    _sw.copy(_fd).setY(lerp(-0.8, 0.9, k));
+    aimArms(ch, _sw, false, true);
+  }
+  poseHeld(p.parts, ch, aimDir, _fd);
+}
+
 // ------------------------------------------------------------------- Player
 function createPlayer() {
-  const kitty = buildKitty({ rim: { color: 0x59e7ff, power: 2.4, strength: 0.9 } });
+  const real = hasModel('hero') ? buildRealCat('hero') : null;
+  const kitty = real || buildKitty({ rim: { color: 0x59e7ff, power: 2.4, strength: 0.9 } });
   scene.add(kitty.group);
   const p = {
-    group: kitty.group, parts: kitty.parts,
+    group: kitty.group, parts: kitty.parts, char: real ? real.char : null,
+    meleeT: 0, emote: false, airT: 0,
     pos: new THREE.Vector3(POIS[1].x, 100, POIS[1].z),
     vel: new THREE.Vector3(),
     radius: 0.5, height: 1.9,
@@ -517,17 +764,19 @@ function updatePlayer(dt) {
   }
   // skateboard visual
   if (p.skating) {
+    p.parts.board.visible = true;
     p.parts.board.position.set(0, 0.12, 0.15); p.parts.board.rotation.set(0, 0, 0);
     p.group.rotation.z = -p.vel.x * 0.02; // lean
     p.trailT -= dt;
     if (p.trailT <= 0 && speed > 6) { p.trailT = 0.04; spawnSkateTrail(); }
   } else {
-    p.parts.board.position.set(0, 1.2, -0.42); p.parts.board.rotation.x = Math.PI / 2;
+    p.parts.board.visible = !p.char; // the rigged model keeps the deck stashed until V
+    p.parts.board.position.set(0, 1.2, p.char ? -0.26 : -0.42); p.parts.board.rotation.x = Math.PI / 2;
     p.group.rotation.z = 0;
   }
   p.group.position.y = p.pos.y; // feet at pos.y
   // crouch during slide
-  p.group.scale.y = p.slideT > 0 ? 0.7 : 1;
+  p.group.scale.y = p.slideT > 0 && !p.char ? 0.7 : 1;
 
   // weapon visibility
   const item = activeItem();
@@ -539,6 +788,8 @@ function updatePlayer(dt) {
     p.parts.gun.userData.accent.material.color.set(item.color);
     p.parts.gun.userData.accent.material.emissive.set(item.color);
   }
+  if (p.meleeT > 0) p.meleeT -= dt;
+  if (p.char) animatePlayerChar(p, dt, speed, isGun, isMelee);
   // muzzle flash fade
   if (p.parts.flash.material.opacity > 0) p.parts.flash.material.opacity = Math.max(0, p.parts.flash.material.opacity - dt * 12);
 
@@ -574,14 +825,17 @@ function spawnSkateTrail() {
 
 // ------------------------------------------------------------------- camera
 function updateCamera(dt) {
+  if (import.meta.env.VITE_GK_TEST && window.__gkCamHold) return;
   const p = player;
   // ADS lerp
   const adsT = (adsDown && activeItem() && activeItem().kind === 'gun') ? 1 : 0;
   p.cam.fov = lerp(p.cam.fov, lerp(70, 45, adsT), 1 - Math.exp(-12 * dt));
-  const right = lerp(0.9, 0.62, adsT), up = lerp(1.6, 1.55, adsT), back = lerp(3.6, 2.5, adsT);
+  // the rigged model is a full-height person: pull back and drop the arm so head-to-sneakers stays in frame
+  const tall = !!p.char;
+  const right = lerp(tall ? 0.85 : 0.9, tall ? 0.7 : 0.62, adsT), up = lerp(tall ? 0.95 : 1.6, tall ? 0.72 : 1.55, adsT), back = lerp(tall ? 4.4 : 3.6, tall ? 2.6 : 2.5, adsT);
   camera.fov = p.cam.fov; camera.updateProjectionMatrix();
 
-  const focus = V.copy(p.pos); focus.y += 1.5;
+  const focus = V.copy(p.pos); focus.y += p.char ? 1.45 : 1.5;
   const fwd = getForward(V2);
   const camRight = new THREE.Vector3().crossVectors(fwd, UP).normalize();
   let camPos = focus.clone().addScaledVector(fwd, -back).addScaledVector(camRight, right).addScaledVector(UP, up);
@@ -633,7 +887,9 @@ function fireGun(item) {
   const origin = camera.position.clone();
   const baseDir = getForward(new THREE.Vector3());
   const bloom = adsDown ? item.adsBloom : item.bloom;
-  const muzzle = p.group.localToWorld(new THREE.Vector3(0.55, 1.25, 1.0));
+  let muzzle;
+  if (p.char) { p.parts.gun.updateMatrixWorld(true); muzzle = p.parts.gun.localToWorld(new THREE.Vector3(0, 0.03, 0.75)); }
+  else muzzle = p.group.localToWorld(new THREE.Vector3(0.55, 1.25, 1.0));
   for (let pel = 0; pel < item.pellets; pel++) {
     const dir = baseDir.clone();
     dir.x += rand(-bloom, bloom); dir.y += rand(-bloom, bloom); dir.z += rand(-bloom, bloom);
@@ -665,6 +921,7 @@ function fireGun(item) {
 function meleeSwing() {
   const p = player;
   // swing anim
+  p.meleeT = 0.2;
   if (p.parts.arms[1]) { p.parts.arms[1].rotation.x = -1.2; setTimeout(() => { if (p.parts.arms[1]) p.parts.arms[1].rotation.x = 0; }, 120); }
   const origin = camera.position.clone();
   const dir = getForward(new THREE.Vector3());
@@ -698,10 +955,11 @@ function spawnWeakSpot(point, normal, crit) {
 }
 
 function breakProp(mesh) {
-  spawnExplosion(mesh.position.clone(), 0xb6ff3a);
+  if (!mesh.parent) return;
+  spawnExplosion(mesh.position.clone().setY(mesh.position.y + (mesh.isMesh ? 0 : 0.8)), 0xb6ff3a);
   gainMats(mesh.userData.prop.mats * 0.5);
   propsGroup.remove(mesh);
-  mesh.geometry.dispose();
+  if (mesh.isMesh) mesh.geometry.dispose();
 }
 
 function gainMats(n) { player.mats = Math.min(CONFIG.maxMats, player.mats + n); }
@@ -805,7 +1063,32 @@ function applyHeal(item) {
 // ------------------------------------------------------------------- Bots
 let botNameN = 0;
 const BOT_NAMES = ['CyberRival', 'NeonGoon', 'ShutoShade', 'BassBandit', 'ChromeClaw', 'VaporViper', 'GlitchGato', 'SynthStray', 'MechaMouser', 'DriftDaemon', 'PixelPanther'];
+const ROBOT_MODELS = ['roller', 'tower'];
+const ROBOT_FACING = Math.PI; // the cam robots' lenses point down -z in the source models
+function makeRobotMesh() {
+  const avail = ROBOT_MODELS.filter(hasModel);
+  if (!avail.length) return null;
+  const m = makeProp(pick(avail), { h: 2.15 });
+  const g = new THREE.Group(), body = new THREE.Group();
+  m.rotation.y = ROBOT_FACING; body.add(m); g.add(body);
+  // red threat ring on the ground so rivals read at a glance
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.9, 32),
+    new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; g.add(ring);
+  // the cam robots are skinny poles, so shots test against an invisible body-sized cylinder
+  const hitbox = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 2.15, 10), new THREE.MeshBasicMaterial({ visible: false }));
+  hitbox.position.y = 1.075; g.add(hitbox);
+  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5),
+    new THREE.MeshBasicMaterial({ color: 0xff8a8a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  flash.position.set(0, 1.75, 0.6); g.add(flash);
+  return { group: g, parts: { dreads: [], legs: [], arms: [], flash, body } };
+}
 function makeBotMesh(companion) {
+  if (companion && hasModel('snow')) {
+    const k = buildRealCat('snow', { gunColor: 0x5fe0ff });
+    if (k) { k.parts.gun.visible = true; return k; }
+  }
+  if (!companion) { const r = makeRobotMesh(); if (r) return r; }
   const color = companion ? 0x5fe0ff : 0xff3b3b;
   const k = buildKitty({
     rim: { color, power: 2.2, strength: 1.0 }, skin: companion ? 0x2a4a55 : 0x4a2a2a,
@@ -834,9 +1117,10 @@ function spawnBots() {
 class Bot {
   constructor(companion) {
     this.companion = companion;
-    this.name = companion ? 'Lil Snoop Switch-Bot' : (BOT_NAMES[botNameN++ % BOT_NAMES.length] + '_' + (10 + (Math.random() * 89 | 0)));
     const k = makeBotMesh(companion);
-    this.group = k.group; this.parts = k.parts;
+    this.name = companion ? (k.char ? 'Snow' : 'Lil Snoop Switch-Bot') : (BOT_NAMES[botNameN++ % BOT_NAMES.length] + '_' + (10 + (Math.random() * 89 | 0)));
+    this.group = k.group; this.parts = k.parts; this.char = k.char || null;
+    this.aimT = 0; this.aimPt = new THREE.Vector3();
     this.group.userData.botRef = this;
     botGroup.add(this.group);
     this.pos = new THREE.Vector3();
@@ -925,6 +1209,25 @@ class Bot {
     if (this.parts.legs[0]) { this.parts.legs[0].rotation.x = sw; this.parts.legs[1].rotation.x = -sw; }
     for (const dl of this.parts.dreads) dl.rotation.x = Math.sin(clock.elapsedTime * 3 + dl.userData.phase) * 0.12 - 0.1;
     if (this.parts.flash.material.opacity > 0) this.parts.flash.material.opacity -= dt * 12;
+    // face where they're going unless they're squaring up to someone
+    if (sp > 0.6 && !this.companion && this.state !== 'aggro') this.group.rotation.y = Math.atan2(this.vel.x, this.vel.z);
+    if (this.char) this.animateChar(dt, sp);
+    else if (this.parts.body) {
+      const b = this.parts.body;
+      b.rotation.x = lerp(b.rotation.x, clamp(sp * 0.03, 0, 0.18), 1 - Math.exp(-6 * dt));
+      b.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.05 * clamp(sp / 4, 0, 1);
+    }
+  }
+  animateChar(dt, sp) {
+    const ch = this.char;
+    setAnim(ch, sp > 2.5 ? 'run' : sp > 0.4 ? 'walk' : 'idle', sp > 2.5 ? clamp(sp / 8.5, 0.7, 1.2) : 1);
+    ch.mixer.update(dt);
+    this.group.updateMatrixWorld(true);
+    const ry = this.group.rotation.y;
+    _fd.set(Math.sin(ry), 0, Math.cos(ry));
+    let aimDir = null;
+    if (this.aimT > 0) { this.aimT -= dt; aimDir = aimArms(ch, this.aimPt, true); }
+    poseHeld(this.parts, ch, aimDir, _fd);
   }
   updateCompanion(dt, pdist, toPlayer) {
     // follow player
@@ -942,10 +1245,10 @@ class Bot {
     }
     // ping chests
     this.pingCd -= dt;
-    if (this.pingCd <= 0) { this.pingCd = rand(8, 14); hud.banner_('Switch-Bot pinged a loot chest nearby', '#5fe0ff', 1500); }
+    if (this.pingCd <= 0) { this.pingCd = rand(8, 14); hud.banner_(`${this.char ? 'Snow' : 'Switch-Bot'} pinged ${chests.some((c) => c.bag) ? 'a money bag' : 'a loot chest'} nearby`, '#5fe0ff', 1500); }
     // hype drops
     this.giveCd -= dt;
-    if (this.giveCd <= 0 && pdist < 10) { this.giveCd = 14; gainMats(20); hud.banner_('Switch-Bot dropped +20 Vibe Mats', '#b6ff3a', 1400); }
+    if (this.giveCd <= 0 && pdist < 10) { this.giveCd = 14; gainMats(20); hud.banner_(`${this.char ? 'Snow' : 'Switch-Bot'} dropped +20 Vibe Mats`, '#b6ff3a', 1400); }
   }
   moveToward(dir, speed, dt) {
     const d = dir.clone(); d.y = 0;
@@ -965,7 +1268,9 @@ class Bot {
     }
   }
   shootAt(targetPos) {
-    const from = this.pos.clone().setY(this.pos.y + 1.3);
+    this.aimPt.copy(targetPos).setY(targetPos.y + 1.0); this.aimT = 0.6;
+    let from = this.pos.clone().setY(this.pos.y + 1.3);
+    if (this.char) { this.parts.gun.updateMatrixWorld(true); from = this.parts.gun.localToWorld(new THREE.Vector3(0, 0.03, 0.75)); }
     const to = targetPos.clone().setY(targetPos.y + 1.0);
     spawnTracer(from, to, this.companion ? 0x5fe0ff : 0xff5b5b);
     this.parts.flash.material.opacity = 1;
@@ -1040,6 +1345,24 @@ class Chest {
     this.opened = false;
     const col = RARITY[this.rarity].glow;
     this.group = new THREE.Group();
+    const bag = hasModel('moneybag') ? makeProp('moneybag', { h: 1.25 }) : null;
+    if (bag) this.makeBag(bag, col);
+    else this.makeBox(col);
+    this.beam = makeBeam(col); this.beam.position.y = 3; this.group.add(this.beam);
+    const glow = new THREE.PointLight(col, 2, 8); glow.position.y = 1.2; this.group.add(glow);
+    this.group.position.set(x, 0, z);
+    this.x = x; this.z = z;
+    lootGroup.add(this.group);
+  }
+  makeBag(bag, col) {
+    this.bag = true;
+    bag.rotation.y = rand(0, Math.PI * 2);
+    this.group.add(bag); this.lid = bag;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 32),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; this.group.add(ring);
+  }
+  makeBox(col) {
     const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.9),
       makeStylized({ color: 0x1c1430, roughness: 0.4, metalness: 0.5, emissive: col, emissiveIntensity: 0.5 }, { color: col, strength: 0.8 }));
     base.position.y = 0.4; base.castShadow = true;
@@ -1048,17 +1371,13 @@ class Chest {
       makeStylized({ color: 0x241a3e, emissive: col, emissiveIntensity: 0.8 }, { color: col, strength: 0.9 }));
     this.lid.position.set(0, 0.85, -0.45); this.lid.geometry.translate(0, 0, 0.45);
     this.group.add(this.lid);
-    this.beam = makeBeam(col); this.beam.position.y = 3; this.group.add(this.beam);
-    const glow = new THREE.PointLight(col, 2, 8); glow.position.y = 1.2; this.group.add(glow);
-    this.group.position.set(x, 0, z);
-    this.x = x; this.z = z;
-    lootGroup.add(this.group);
   }
   open() {
     if (this.opened) return;
     this.opened = true;
     audio.openChest();
-    this.lid.rotation.x = -1.2;
+    if (this.bag) { this.lid.rotation.z = 1.35; this.lid.position.x = 0.45; }
+    else this.lid.rotation.x = -1.2;
     this.group.remove(this.beam);
     const given = [];
     given.push(giveToPlayer(randomLootItem()));
@@ -1278,7 +1597,8 @@ function update(dt) {
     car.position.z += car.userData.speed * dt;
     if (car.position.z > CONFIG.mapHalf) car.position.z = -CONFIG.mapHalf;
     if (car.position.z < -CONFIG.mapHalf) car.position.z = CONFIG.mapHalf;
-    dynamicSolids.push({ minx: car.position.x - 1.5, maxx: car.position.x + 1.5, minz: car.position.z - 3, maxz: car.position.z + 3, baseY: roadY + 0.3, top: roadY + 1.9 });
+    const u = car.userData;
+    dynamicSolids.push({ minx: car.position.x - u.hw, maxx: car.position.x + u.hw, minz: car.position.z - u.hl, maxz: car.position.z + u.hl, baseY: roadY + 0.3, top: roadY + 0.3 + u.h });
   }
 
   updatePlayer(dt);
@@ -1308,7 +1628,7 @@ function update(dt) {
   let near = null, nd = 3.6 * 3.6;
   for (const c of chests) { if (c.opened) continue; const d = dist2(c.x, c.z, player.pos.x, player.pos.z); if (d < nd) { nd = d; near = c; } }
   player._nearChest = near;
-  if (near) hud.showInteract(`<b>E</b> &nbsp;Open ${RARITY[near.rarity].name} Chest`);
+  if (near) hud.showInteract(near.bag ? `<b>E</b> &nbsp;Grab ${RARITY[near.rarity].name} Money Bag` : `<b>E</b> &nbsp;Open ${RARITY[near.rarity].name} Chest`);
   else hud.showInteract(null);
 
   // speed lines intensity
@@ -1413,6 +1733,7 @@ function setupInput(canvas) {
       case 'KeyR': build.select('floor'); break;
       case 'KeyF': build.cancel(); break;
       case 'KeyG': useHeal(); break;
+      case 'KeyB': if (player.char && player.onGround && !player.freefall) player.emote = !player.emote; break;
       case 'Digit1': player.active = 0; build.cancel(); break;
       case 'Digit2': player.active = 1; build.cancel(); break;
       case 'Digit3': player.active = 2; build.cancel(); break;
@@ -1429,6 +1750,25 @@ function setupInput(canvas) {
   });
 }
 
+// ------------------------------------------------------------------- sky
+// night gradient with a magenta glow sitting right on the horizon behind the painted skyline
+function makeSkyBackground() {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 512);
+  gr.addColorStop(0, '#07051a'); gr.addColorStop(0.3, '#150b36'); gr.addColorStop(0.43, '#30145a');
+  gr.addColorStop(0.485, '#7a2a86'); gr.addColorStop(0.5, '#b0408f'); gr.addColorStop(0.52, '#2a1240'); gr.addColorStop(1, '#06040c');
+  g.fillStyle = gr; g.fillRect(0, 0, 1024, 512);
+  for (let i = 0; i < 260; i++) {
+    const y = Math.random() ** 1.6 * 200;
+    g.fillStyle = `rgba(255,255,255,${(0.25 + Math.random() * 0.6) * (1 - y / 230)})`;
+    g.fillRect(Math.random() * 1024, y, Math.random() < 0.1 ? 2 : 1, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 // ------------------------------------------------------------------- init
 let stormVignette;
 async function init() {
@@ -1438,7 +1778,17 @@ async function init() {
   camera = new THREE.PerspectiveCamera(70, W / H, 0.1, 1000);
   camera.position.set(0, 10, 20);
   lights = setupEnvironment(renderer, scene);
+  scene.background = makeSkyBackground();
   comp = createComposer(renderer, scene, camera);
+
+  const ov = document.getElementById('overlay');
+  const loading = document.createElement('div');
+  loading.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff5fd0;font:700 18px system-ui,sans-serif;letter-spacing:.12em;text-shadow:0 0 12px #ff5fd0';
+  loading.textContent = 'LOADING NEO-TOKYO 85…';
+  if (ov) ov.appendChild(loading);
+  await new Promise((r) => setTimeout(r, 0));
+  await loadArt(renderer).catch((e) => console.warn('[GK7 art]', e));
+  loading.remove();
 
   buildWorld();
   snapshotStatic();
@@ -1475,6 +1825,7 @@ if (import.meta.env.VITE_GK_TEST) {
     get running() { return running; }, get matchOver() { return matchOver; }, get locked() { return locked; },
     get buildGroup() { return buildGroup; }, get botGroup() { return botGroup; }, get lootGroup() { return lootGroup; },
     startMatch, winMatch, killBot, damageBot, aliveRivals, CONFIG, keys, update, getForward,
+    ART, hasModel, makeProp, vehicles, get propsGroup() { return propsGroup; }, get worldGroup() { return worldGroup; }, get hitWorld() { return hitWorld; },
     setAds(v) { adsDown = v; }, setFire(v) { fireDown = v; fireEdge = v; }, setLocked(v) { locked = v; },
   };
 }
