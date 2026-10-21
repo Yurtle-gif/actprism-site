@@ -162,7 +162,7 @@ function buildWorld() {
   // POI building clusters
   let poiIdx = 0;
   for (const poi of POIS) {
-    const count = 5 + (Math.random() * 4 | 0);
+    const count = 7 + (Math.random() * 4 | 0);
     const mainFront = FRONTS[poiIdx++ % FRONTS.length];
     for (let i = 0; i < count; i++) {
       const bw = rand(6, 14), bd = rand(6, 14), bh = rand(8, 26);
@@ -191,6 +191,8 @@ function buildWorld() {
     pad.rotation.x = -Math.PI / 2; pad.position.set(poi.x, 0.03, poi.z);
     worldGroup.add(pad);
   }
+
+  buildCityBlocks();
 
   // scatter harvestable props
   for (let i = 0; i < 120; i++) {
@@ -275,6 +277,41 @@ function addFacadeBuilding(bx, bz, bw, bd, bh, frontKey, poi) {
   tops.push({ minx: bx - bw / 2, maxx: bx + bw / 2, minz: bz - bd / 2, maxz: bz + bd / 2, top: bh });
   if (ART.tex.billboard && Math.random() < 0.45) addBillboard(bx, bz, bw, bd, bh, poi);
   return true;
+}
+// E: "add more buildings": fill the island between the POIs with city blocks
+// on a street grid. Keeps the elevated highway (x = 20) and its ramp clear,
+// leaves the POI plazas to their own clusters, and skips some lots so there
+// are open spaces to fight and build in.
+function buildCityBlocks() {
+  const cell = 30, street = 9, edge = CONFIG.mapHalf - 16;
+  const overlaps = (minx, maxx, minz, maxz, pad) => solids.some((s) =>
+    minx < s.maxx + pad && maxx > s.minx - pad && minz < s.maxz + pad && maxz > s.minz - pad);
+  for (let cx = -edge + cell / 2; cx < edge; cx += cell) {
+    for (let cz = -edge + cell / 2; cz < edge; cz += cell) {
+      if (POIS.some((p) => Math.hypot(p.x - cx, p.z - cz) < 40)) continue;
+      if (Math.random() < 0.3) continue;  // empty lot / plaza
+      // one big building or a pair of smaller ones per block
+      const lot = cell - street;
+      const parts = Math.random() < 0.5 ? [[0, 0, lot, lot]]
+        : (Math.random() < 0.5 ? [[-lot / 4, 0, lot / 2 - 1, lot], [lot / 4, 0, lot / 2 - 1, lot]]
+          : [[0, -lot / 4, lot, lot / 2 - 1], [0, lot / 4, lot, lot / 2 - 1]]);
+      for (const [ox, oz, w, d] of parts) {
+        const bw = w * rand(0.7, 1), bd = d * rand(0.7, 1);
+        const bx = cx + ox, bz = cz + oz;
+        if (bx + bw / 2 > 2 && bx - bw / 2 < 38) continue;  // highway + on-ramp corridor
+        if (overlaps(bx - bw / 2, bx + bw / 2, bz - bd / 2, bz + bd / 2, 3)) continue;
+        const bh = Math.random() < 0.2 ? rand(28, 44) : rand(9, 24);
+        const near = POIS.reduce((a, p) => (Math.hypot(p.x - bx, p.z - bz) < Math.hypot(a.x - bx, a.z - bz) ? p : a));
+        if (addFacadeBuilding(bx, bz, bw, bd, bh, pick(FRONTS), near)) continue;
+        const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd),
+          makeStylized({ color: 0x1c1430, roughness: 0.6, metalness: 0.3 }, { color: pick([0xff5fd0, 0x5fe0ff, 0xb24bff]), power: 3.2, strength: 0.5 }));
+        b.position.set(bx, bh / 2, bz); b.castShadow = true; b.receiveShadow = true;
+        hitWorld.add(b);
+        addSolid(bx, bz, bw / 2, bd / 2, 0, bh, b);
+        tops.push({ minx: bx - bw / 2, maxx: bx + bw / 2, minz: bz - bd / 2, maxz: bz + bd / 2, top: bh });
+      }
+    }
+  }
 }
 function addBillboard(bx, bz, bw, bd, bh, poi) {
   bbMat = bbMat || new THREE.MeshStandardMaterial({ map: ART.tex.billboard, emissiveMap: ART.tex.billboard, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.6 });
