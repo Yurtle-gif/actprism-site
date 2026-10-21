@@ -16,3 +16,15 @@ To sync the game folder on the computer with this copy:
     mkdir -p functions/api
     for f in checkout verify; do
       curl -fsSL https://raw.githubusercontent.com/Yurtle-gif/actprism-site/flock-kitty/glock-kitty/functions/api/$f.js -o functions/api/$f.js; done
+
+`functions/api/events.js` is the telemetry ingest; `telemetry/` holds the D1 schema, the analysis
+SQL, the event dictionary (`TELEMETRY.md`) and a sample batch. Sync those too:
+
+    for f in checkout verify events; do
+      curl -fsSL https://raw.githubusercontent.com/Yurtle-gif/actprism-site/flock-kitty/glock-kitty/functions/api/$f.js -o functions/api/$f.js; done
+    mkdir -p telemetry
+    for f in TELEMETRY.md schema.sql queries.sql sample-batch.json; do
+      curl -fsSL https://raw.githubusercontent.com/Yurtle-gif/actprism-site/flock-kitty/glock-kitty/telemetry/$f -o telemetry/$f; done
+
+Telemetry is stored only once a D1 database named `flockkitty-telemetry` is bound as `DB` on the
+Pages project (steps in `telemetry/TELEMETRY.md`). Until then `/api/events` drops events.

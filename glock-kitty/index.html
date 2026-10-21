@@ -394,7 +394,7 @@ const SKINS = {
 const skinOk = id => SKINS[id].buy ? owned(SKINS[id].buy) : hasUnlock('skin', id);
 const skinOf = id => SKINS[id] && skinOk(id) ? id : 'pink';
 let SKIN = SKINS[skinOf(store.get('gk.skin', 'pink'))];
-function setSkin(id) { id = skinOf(id); SKIN = SKINS[id]; store.set('gk.skin', id); renderSkins(); }
+function setSkin(id) { id = skinOf(id); SKIN = SKINS[id]; store.set('gk.skin', id); renderSkins(); TEL.track('skin_select', { skin: id }); }
 function renderSkins() {
   const row = $('skinRow');
   row.querySelectorAll('button').forEach(b => b.remove());
@@ -436,6 +436,84 @@ const siteBase = () => /^https?:$/.test(location.protocol) && !/claude\.ai$/.tes
 const challengeLink = (score, tag) => siteBase() + '#beat-' + Math.floor(score) + '-' + ((tag || 'KITTY').replace(/[^A-Z0-9]/gi, '') || 'KITTY');
 const TEASER = 'Richmond stage · the Lean Monster boss · worldwide leaderboard';
 
+/* ---------- telemetry: what players do, batched to /api/events on the live site only ---------- */
+// No names, emails or IPs. One anonymous device id per browser (gk.did), one session id per page load, one run id per run.
+const TEL = (() => {
+  const ENABLED = onSite();
+  const FLUSH_EVERY = 30, THRESHOLD = 25, MAX_BATCH = 100, MAX_QUEUE = 500, MAX_TRIES = 3, HEARTBEAT = 180;
+  const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
+  let did = store.get('gk.did', ''); if (!did || typeof did !== 'string') { did = uuid(); store.set('gk.did', did); }
+  const sid = uuid(), startedAt = Date.now();
+  let q = [], seq = 0, sending = false, runId = '', runs = 0, frames = 0, frameT = 0, fps = 0, lastBeat = 0;
+  const deviceClass = () => { const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0; const w = Math.min(screen.width || innerWidth, screen.height || innerHeight); return touch && w < 700 ? 'phone' : touch && w < 1100 ? 'tablet' : 'desktop'; };
+  const platform = () => { const u = navigator.userAgent; return /iPhone|iPad|iPod/.test(u) ? 'ios' : /Android/.test(u) ? 'android' : /Windows/.test(u) ? 'windows' : /Mac/.test(u) ? 'mac' : /CrOS/.test(u) ? 'chromeos' : /Linux/.test(u) ? 'linux' : 'unknown'; };
+  const ctxNow = () => ({ device: deviceClass(), platform: platform(), w: innerWidth, h: innerHeight, dpr: Math.round((devicePixelRatio || 1) * 10) / 10, lang: (navigator.language || '').slice(0, 8), v: 34 });
+  function clean(p) {
+    const out = {}; let n = 0;
+    for (const k in (p || {})) {
+      let v = p[k];
+      if (v == null || typeof k !== 'string' || !/^[a-z0-9_]{1,40}$/.test(k)) continue;
+      if (typeof v === 'number') { if (!isFinite(v)) continue; v = Math.round(v * 1000) / 1000; }
+      else if (typeof v === 'string') v = v.replace(/[\x00-\x1f]/g, '').slice(0, 96);
+      else if (typeof v !== 'boolean') continue;
+      out[k] = v; if (++n >= 24) break;
+    }
+    return out;
+  }
+  function track(e, p) {
+    if (!ENABLED || typeof e !== 'string') return;
+    q.push({ e, t: Date.now(), seq: ++seq, run: runId || undefined, p: clean(p) });
+    if (q.length > MAX_QUEUE) q.shift();
+    if (q.length >= THRESHOLD) flush(false);
+  }
+  function body(batch) { return JSON.stringify({ v: 1, did, sid, sent: Date.now(), ctx: ctxNow(), events: batch }); }
+  function requeue(batch) { for (const ev of batch) ev.a = (ev.a || 0) + 1; q.unshift(...batch.filter(ev => ev.a < MAX_TRIES)); }
+  async function flush(beacon) {
+    if (!ENABLED || !q.length) return;
+    if (beacon) {
+      // page is going away: hand the whole queue to sendBeacon, which outlives the tab
+      const batch = q.splice(0, MAX_BATCH);
+      try { if (!navigator.sendBeacon || !navigator.sendBeacon('/api/events', new Blob([body(batch)], { type: 'application/json' }))) requeue(batch); } catch (e) { requeue(batch); }
+      return;
+    }
+    if (sending) return;
+    sending = true;
+    const batch = q.splice(0, MAX_BATCH);
+    try {
+      const r = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body(batch), keepalive: true });
+      if (!r.ok && r.status !== 400 && r.status !== 413) requeue(batch); // a 400/413 means our own payload is bad; retrying would not help
+    } catch (e) { requeue(batch); }
+    finally { sending = false; }
+  }
+  // frame timing feeds the heartbeat's fps
+  function frame(dt) {
+    frames++; frameT += dt;
+    if (frameT >= 2) { fps = Math.round(frames / frameT); frames = 0; frameT = 0; }
+    const now = Date.now();
+    if (now - lastBeat >= HEARTBEAT * 1000) {
+      lastBeat = now;
+      if (S) track('heartbeat', { fps, mode: S.mode, wave: S.wave, minutes: Math.round((now - startedAt) / 60000), ride: !!S.ride, lives: S.p && S.p.lives, queue: q.length });
+    }
+  }
+  function newRun() { runId = uuid(); runs++; return runId; }
+  if (ENABLED) {
+    lastBeat = Date.now();
+    setInterval(() => flush(false), FLUSH_EVERY * 1000);
+    addEventListener('pagehide', () => { track('session_end', { duration_s: Math.round((Date.now() - startedAt) / 1000), runs, mode: S && S.mode, wave: S && S.wave }); flush(true); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) flush(true); });
+  }
+  return { track, flush, newRun, frame, enabled: ENABLED, did, sid };
+})();
+// first-time milestones, each sent once per device
+const FTUE = ['first_run', 'first_wave_clear', 'first_shop_buy', 'first_boss_kill', 'first_ride', 'first_death', 'first_share', 'first_daily', 'first_purchase'];
+function ftue(step) {
+  const f = store.get('gk.ftue', {}) || {};
+  if (f[step]) return;
+  f[step] = Date.now(); store.set('gk.ftue', f);
+  TEL.track('ftue_step', { step, index: FTUE.indexOf(step), minutes_since_first: f.first_run ? Math.round((Date.now() - f.first_run) / 60000) : 0 });
+}
+const telRun = () => ({ earned: 0, spent: 0, hits: 0, killsBy: {}, started: Date.now() });
+
 /* ---------- palette (canvas art mirrors the CSS tokens) ---------- */
 const rootCss = getComputedStyle(document.documentElement);
 const tok = (n, f) => rootCss.getPropertyValue(n).trim() || f;
@@ -454,7 +532,7 @@ const C = {
 function setCat(id, save) {
   const c = CATS[id] || CATS.yellow; id = CATS[id] ? id : 'yellow';
   C.skin = c.skin; C.skinDark = c.dark;
-  if (save) store.set('gk.cat', id);
+  if (save) { store.set('gk.cat', id); TEL.track('cat_select', { cat: id }); }
   document.querySelectorAll('.seg[data-cat]').forEach(b => b.setAttribute('aria-pressed', b.dataset.cat === id ? 'true' : 'false'));
 }
 setCat(store.get('gk.cat', 'yellow'), false);
@@ -1028,8 +1106,11 @@ function startGame(daily) {
   calcStats();
   updCam(0, true);
   startWave();
-  if (st.won.length) banner('Unlocked', st.s.n + '-day streak: ' + st.won.map(u => u.name).join(', '), 3.2);
+  if (st.won.length) { banner('Unlocked', st.s.n + '-day streak: ' + st.won.map(u => u.name).join(', '), 3.2); TEL.track('unlock', { streak: st.s.n, items: st.won.map(u => u.id).join(',') }); }
   else if (daily) banner('Daily challenge', dailyMod(S.daily).name + ' · same run for everyone today', 2.6);
+  S.runId = TEL.newRun(); S.tel = telRun();
+  ftue('first_run'); if (daily) ftue('first_daily');
+  TEL.track('run_start', { daily, diff: S.diff, cat: store.get('gk.cat', 'yellow'), skin: store.get('gk.skin', 'pink'), lives: S.p.lives, picks: Object.keys(S.p.picks).join(','), pass: owned('kitty_pass'), streak: st.s.n, mod: daily ? dailyMod(S.daily).id : '' });
   showFor('play');
 }
 // dying on or after a boss wave restarts that boss wave with full lives and the same upgrades
@@ -1047,6 +1128,8 @@ function retryCheckpoint() {
   updCam(0, true);
   startWave();
   showFor('play');
+  S.runId = TEL.newRun(); S.tel = telRun();
+  TEL.track('run_retry', { wave: cp.wave, score: cp.score, daily: !!daily });
 }
 function toTitle() {
   S = makeState('title');
@@ -1060,6 +1143,13 @@ function resumeGame() { if (S.mode !== 'paused') return; S.mode = 'play'; mouse.
 function gameOver() {
   S.mode = 'over';
   S.newBest = S.score > curBest;
+  if (S.tel) {
+    ftue('first_death');
+    TEL.track('run_end', { score: S.score, wave: S.wave, kills: S.kills, secs: Math.round((Date.now() - S.tel.started) / 1000), daily: !!S.daily, diff: S.diff, city: S.ride ? RIDE().name : SCN().name, in_ride: !!S.ride,
+      cash_left: S.p.cash, cash_earned: S.tel.earned, cash_spent: S.tel.spent, hits: S.tel.hits, gun: S.p.gun, picks: Object.keys(S.p.picks).join(','), kills_by: JSON.stringify(S.tel.killsBy).slice(0, 96),
+      new_best: S.score > curBest, beat_challenge: !!S.beat, checkpoint: !!S.checkpoint });
+    TEL.flush(false);
+  }
   if (S.newBest) { curBest = S.score; if (S.daily) store.set('gk.dbest.' + S.daily, curBest); else { best = curBest; store.set('gk.best', best); } }
   showFor('over');
 }
@@ -1080,7 +1170,7 @@ function showFor(mode) {
     if (CHALLENGE) $('challengeLine').innerHTML = '<b>' + CHALLENGE.by + '</b> dares you to beat <b>' + fmt(CHALLENGE.score) + '</b>. Hit Play and go.';
   }
   if (mode === 'paused') $('pauseWave').textContent = 'Wave ' + S.wave + ' · ' + D().label;
-  if (mode === 'upgrade') { renderCards(); if (S.wave % 5 === 0) $('shopHint').textContent = 'Coming soon: ' + TEASER; }
+  if (mode === 'upgrade') { renderCards(); if (S.wave % 5 === 0) $('shopHint').textContent = 'Coming soon: ' + TEASER; TEL.track('shop_open', { wave: S.wave, cash: S.p.cash, offer: S.offer.join(','), prices: S.offer.map(priceOf).join(',') }); }
   if (mode === 'over') {
     $('oScore').textContent = fmt(S.score);
     $('oWave').textContent = S.wave;
@@ -1119,6 +1209,7 @@ function syncDiffButtons() {
 function setDiff(k) {
   if (!DIFF[k]) return;
   store.set('gk.diff', k);
+  TEL.track('diff_select', { diff: k });
   if (S && S.mode === 'title') S.diff = k;
   syncDiffButtons();
   SFX.choose();
@@ -1162,6 +1253,7 @@ function startWave() {
     t += (0.7 + R() * 0.7) * gap;
   }
   S.queue.sort((a, b) => a.at - b.at);
+  TEL.track('wave_start', { wave: n, city: SCN().name, boss: boss ? bossKind(n) : '', lives: p.lives, cash: p.cash, gun: p.gun, picks: Object.keys(p.picks).length, budget: Math.round((boss ? (bossN === 1 ? 3 : 4 + n) : 6 + n * 4) * D().budget) });
   if (boss) { S.banner = null; SFX.rumble(); syncTouchUI(); return; }
   banner('Wave ' + n, n > 1 && (n - 1) % 5 === 0 ? 'Welcome to ' + SCN().name : n === 1 ? SCN().name + ' · ' + WAVE_LINES[1] : (WAVE_LINES[n] || pick(FILLER_LINES)), 2.2);
   SFX.wave();
@@ -1298,6 +1390,7 @@ function priceOf(id) {
 }
 function leaveShop() {
   if (S.mode !== 'upgrade' || performance.now() - upgradeOpenedAt < 450) return;
+  TEL.track('shop_leave', { wave: S.wave, bought: S.bought.length, cash: S.p.cash, secs: Math.round((performance.now() - upgradeOpenedAt) / 1000) });
   SFX.choose();
   S.mode = 'play';
   showFor('play');
@@ -1308,11 +1401,14 @@ function chooseUpgrade(id) {
   if (S.mode !== 'upgrade' || performance.now() - upgradeOpenedAt < 450) return;
   const p = S.p;
   if (S.bought.includes(id)) return;
-  const cost = priceOf(id);
+  const cost = priceOf(id), u0 = UPGRADES.find(x => x.id === id);
   if (p.cash < cost) { SFX.empty(); const c = $('card-' + id); if (c) { c.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 180 }); } return; }
   p.cash -= cost;
   S.bought.push(id);
   p.picks[id] = (p.picks[id] || 0) + 1;
+  if (S.tel) S.tel.spent += cost;
+  ftue('first_shop_buy');
+  TEL.track('upgrade_buy', { id, cost, cash_after: p.cash, wave: S.wave, level: p.picks[id], drip: !!(u0 && u0.drip) });
   if (id === 'life') p.lives = Math.min(9, p.lives + 3);
   const u = UPGRADES.find(x => x.id === id);
   if (u && u.gun) { for (const o of UPGRADES) if (o.gun && o.gun !== u.gun) delete p.picks[o.id]; p.gun = u.gun; }
@@ -1413,6 +1509,7 @@ function hurtPlayer(sx, sy, kb = 320) {
   const p = S.p;
   if (p.inv > 0 || p.dashT > 0 || p.dead) return;
   p.lives--;
+  if (S.tel) { S.tel.hits++; TEL.track('player_hit', { wave: S.wave, lives: p.lives, x: Math.round(p.x / 50) * 50, y: Math.round(p.y / 50) * 50, city: SCN().name, boss: S.enemies.some(e => e.t === 'boss') }); }
   p.inv = (touchMode ? 1.9 : 1.4) * ST.invMul;
   const a = Math.atan2(p.y - sy, p.x - sx);
   p.vx = Math.cos(a) * kb; p.vy = Math.sin(a) * kb; p.kbT = 0.22;
@@ -1761,6 +1858,7 @@ function killEnemy(e, noLoot = false) {
   e.dead = true;
   const T = ET[e.t];
   S.kills++;
+  if (S.tel) S.tel.killsBy[e.t] = (S.tel.killsBy[e.t] || 0) + 1;
   S.combo++; S.comboT = 2.5;
   // three or five takedowns inside half a second: a flash, a beat of slow-mo and a word on screen
   S.mk = S.t - S.mkT < 0.45 ? S.mk + 1 : 1; S.mkT = S.t;
@@ -1834,6 +1932,8 @@ function bossBoom(e) {
   S.score += bonus;
   if (S.p.jam < 3) { S.p.jam++; floatText(S.p.x, S.p.y - 90, 'Scammer Jammer +1', C.menace, 16); }
   S.waveState = 'clear'; S.waveT = 4.2;
+  ftue('first_boss_kill');
+  TEL.track('boss_kill', { kind: e.kind, wave: S.wave, secs: Math.round(S.clock), lives: S.p.lives, hits: S.tel ? S.tel.hits : 0, score: S.score });
   banner((BOSSES[e.kind] || BOSSES.flockzilla).name + ' down', '+' + fmt(pts) + ' · wave bonus +' + fmt(bonus), 3.6);
 }
 function addPickup(k, x, y) { S.pickups.push({ k, x: clamp(x + rand(-10, 10), 20, WORLD.w - 20), y: clamp(y + rand(-10, 10), 20, WORLD.h - 20), t: ST.magnet ? 20 : 12, ph: Math.random() * 6 }); }
@@ -1936,9 +2036,11 @@ function updatePickups(dt) {
 }
 function collect(k) {
   const p = S.p;
+  if (k.k !== 'cash') TEL.track('pickup', { kind: k.k, wave: S.wave, lives: p.lives });
   if (k.k === 'cash') {
     const v = Math.round((k.v || 5) * ST.cashMul);
     p.cash += v;
+    if (S.tel) S.tel.earned += v;
     floatText(p.x, p.y - 70, '+$' + v, '#7ee08a', 13);
     SFX.pickup();
     return;
@@ -1986,6 +2088,8 @@ function updateWave(dt) {
       S.waveState = 'clear'; S.waveT = 1.8;
       const bonus = 100 * S.wave;
       S.score += bonus;
+      ftue('first_wave_clear');
+      TEL.track('wave_clear', { wave: S.wave, secs: Math.round(S.clock), lives: S.p.lives, cash: S.p.cash, kills: S.kills, score: S.score, city: SCN().name });
       banner('Wave cleared', '+' + bonus + ' bonus', 1.8);
       SFX.wave();
     }
@@ -2007,6 +2111,8 @@ function startRide() {
   p.ammo = ST.mag; p.reloadT = 0; p.inv = 0; p.vx = p.vy = 0; p.x = 0; p.y = 0; p.aim = -Math.PI / 2; p.frenzy = 0; p.spread = 0;
   FX.casings.length = 0; FX.decals.length = 0;
   banner(kind === 'bike' ? 'Dirtbike run' : 'Getaway car', RIDE().sub, 3);
+  ftue('first_ride');
+  TEL.track('ride_start', { kind, road: RIDE().name, wave: S.wave, lives: p.lives, cash: p.cash });
   SFX.rev();
   updCam(0, true);
   syncTouchUI();
@@ -2015,6 +2121,7 @@ function rideLoseLife(why) {
   const p = S.p;
   if (p.dead) return;
   p.lives--;
+  if (S.tel) { S.tel.hits++; TEL.track('ride_hit', { kind: S.ride.kind, road: RIDE().name, why, lives: p.lives, secs: Math.round(S.ride.t) }); }
   p.inv = 2.2;
   shake(10); FX.hurt = 1; S.combo = 0;
   floatText(p.x, p.y - 70, why + (p.lives > 0 ? ' · ' + p.lives + (p.lives === 1 ? ' life left' : ' lives left') : ''), C.hurt, 16);
@@ -2039,7 +2146,7 @@ function stepRide(dt) {
   if (r.x <= -RW + 34 || r.x >= RW - 34) r.vx *= 0.3;
   r.lean += (steer - r.lean) * (1 - Math.exp(-8 * dt));
   r.boostCD = Math.max(0, r.boostCD - dt);
-  if (inp.dash && r.boostCD <= 0 && r.boost <= 0 && !p.dead) { r.boost = 0.7; r.boostCD = 1.8; SFX.dash(); }
+  if (inp.dash && r.boostCD <= 0 && r.boost <= 0 && !p.dead) { r.boost = 0.7; r.boostCD = 1.8; r.boostsUsed = (r.boostsUsed || 0) + 1; SFX.dash(); }
   if (r.boost > 0) r.boost -= dt;
   const throttle = p.dead ? 0.3 : 1 + (inp.my < -0.3 ? 0.15 : inp.my > 0.3 ? -0.25 : 0);
   const spd = r.spd * throttle * (r.boost > 0 ? 1.6 : 1);
@@ -2124,6 +2231,8 @@ function stepRide(dt) {
     S.score += bonus;
     const pay = 30 * bossN + (r.spotted === 0 ? 40 : 0) + r.kills * 5;
     p.cash += pay; floatText(p.x, p.y - 90, '+$' + pay, '#7ee08a', 16);
+    if (S.tel) S.tel.earned += pay;
+    TEL.track('ride_end', { kind: r.kind, road: RIDE().name, wave: S.wave, spotted: r.spotted, kills: r.kills, unseen: r.spotted === 0, bonus, pay, lives: p.lives, boosts: r.boostsUsed || 0 });
     banner(r.spotted === 0 ? 'Made it unseen' : 'Made it', '+' + fmt(bonus) + (r.kills ? ' · ' + r.kills + ' cams shot' : ''), 3);
     SFX.wave();
   }
@@ -3785,6 +3894,7 @@ let last = performance.now();
 function loop(now) {
   const real = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
+  TEL.frame(real);
   let fxDt = 0;
   FX.flash = Math.max(0, FX.flash - real * 3);
   if (S.mode === 'play' && S.cine) {
@@ -3801,7 +3911,7 @@ function loop(now) {
     if (S.ride) stepRide(dt); else step(dt);
     fxDt = dt;
     S.runT += real;
-    if (CHALLENGE && !S.beat && S.score > CHALLENGE.score) { S.beat = true; floatText(S.p.x, S.p.y - 100, 'Beat ' + CHALLENGE.by + '!', C.brass, 26); SFX.fanfare(); }
+    if (CHALLENGE && !S.beat && S.score > CHALLENGE.score) { S.beat = true; floatText(S.p.x, S.p.y - 100, 'Beat ' + CHALLENGE.by + '!', C.brass, 26); SFX.fanfare(); TEL.track('challenge_beat', { target: CHALLENGE.score, wave: S.wave }); }
     if (S.p.dead && S.mode === 'play') { S.deathT -= real; if (S.deathT <= 0) gameOver(); }
   } else if (S.mode === 'title') {
     S.t += real;
@@ -3865,6 +3975,7 @@ function openShare() {
   $('saveGo').hidden = !url || !/^https?:$/.test(location.protocol) || /claude\.ai$/.test(location.hostname);
   $('shareBox').hidden = false; $('shareBtn').hidden = true;
   $('shareNote').textContent = 'The link dares a friend to beat this exact score.';
+  TEL.track('share_open', { score: S.score, wave: S.wave, daily: !!S.daily });
   SFX.choose();
 }
 async function shareRun() {
@@ -3874,15 +3985,16 @@ async function shareRun() {
     if (navigator.share) {
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
       const file = blob && typeof File === 'function' ? new File([blob], 'flock-kitty-score.png', { type: 'image/png' }) : null;
-      if (file && navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, title: 'Flock Kitty' }); note.textContent = 'Shared.'; return; }
-      await navigator.share({ text, url: link, title: 'Flock Kitty' }); note.textContent = 'Shared.'; return;
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, title: 'Flock Kitty' }); note.textContent = 'Shared.'; ftue('first_share'); TEL.track('share', { method: 'image', score: S.score }); return; }
+      await navigator.share({ text, url: link, title: 'Flock Kitty' }); note.textContent = 'Shared.'; ftue('first_share'); TEL.track('share', { method: 'link', score: S.score }); return;
     }
   } catch (e) { if (e && e.name === 'AbortError') return; }
+  ftue('first_share'); TEL.track('share', { method: 'copy', score: S.score });
   copyText(text, note, 'Copied your score and the link. Paste it anywhere.');
 }
 $('shareBtn').addEventListener('click', openShare);
 $('shareGo').addEventListener('click', shareRun);
-$('linkGo').addEventListener('click', () => copyText(challengeLink(S.score, store.get('gk.tag', 'KITTY')), $('shareNote'), 'Challenge link copied. Send it to someone who thinks they are better.'));
+$('linkGo').addEventListener('click', () => { TEL.track('link_copy', { score: S.score }); copyText(challengeLink(S.score, store.get('gk.tag', 'KITTY')), $('shareNote'), 'Challenge link copied. Send it to someone who thinks they are better.'); });
 $('dailyBtn').addEventListener('click', () => { audioInit(); startGame(true); });
 document.querySelectorAll('.seg[data-cat]').forEach(b => b.addEventListener('click', () => { audioInit(); setCat(b.dataset.cat, true); SFX.choose(); }));
 
@@ -3902,12 +4014,13 @@ function renderShop() {
 function openShop(show) {
   const l = $('shopTitle'); l.hidden = show === true ? false : show === false ? true : !l.hidden;
   $('shopBtn').setAttribute('aria-expanded', l.hidden ? 'false' : 'true'); $('shopBtn').textContent = l.hidden ? 'Shop' : 'Hide shop';
-  if (!l.hidden) { renderShop(); if (!onSite()) $('shopNote').textContent = 'Buying works on the live site, glockkitty.pages.dev. What you buy is saved on that device.'; }
+  if (!l.hidden) { TEL.track('store_open', { owned: getOwned().join(','), from: S ? S.mode : '' }); renderShop(); if (!onSite()) $('shopNote').textContent = 'Buying works on the live site, glockkitty.pages.dev. What you buy is saved on that device.'; }
 }
 async function buy(id) {
   const note = $('shopNote');
   if (!onSite()) { note.textContent = 'Buying works on the live site: glockkitty.pages.dev'; return; }
   note.textContent = 'Opening Stripe…';
+  TEL.track('store_buy_click', { item: id }); TEL.flush(false);
   try {
     const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item: id }) });
     const j = await r.json();
@@ -3926,14 +4039,16 @@ async function claimPurchase() {
   openShop(true);
   $('shopNote').textContent = 'Checking your payment…';
   try {
-    const r = await fetch('/api/verify?session=' + encodeURIComponent(sid));
+    const r = await fetch('/api/verify?session=' + encodeURIComponent(sid) + '&did=' + encodeURIComponent(TEL.did) + '&sid=' + encodeURIComponent(TEL.sid));
     const j = await r.json();
     if (j && j.ok && j.item) {
       grant(j.item, sid); renderShop(); renderSkins();
       const it = SHOP.find(i => i.id === j.item);
+      ftue('first_purchase');
+      TEL.track('purchase_complete', { item: j.item, cents: it ? it.price : 0 }); TEL.flush(false);
       $('shopNote').textContent = (it ? it.name : 'Item') + ' unlocked. Thank you.';
       if (j.item === 'skin_ice') setSkin('ice'); else if (j.item === 'skin_blood') setSkin('blood');
-    } else $('shopNote').textContent = 'Payment not confirmed yet. If you were charged, reload in a minute.';
+    } else { $('shopNote').textContent = 'Payment not confirmed yet. If you were charged, reload in a minute.'; TEL.track('purchase_failed', { item, reason: (j && j.error) || 'not_paid' }); }
   } catch (e) { $('shopNote').textContent = 'Could not confirm the payment. Reload in a minute.'; }
 }
 $('shopBtn').addEventListener('click', () => { audioInit(); openShop(); });
@@ -3950,6 +4065,7 @@ $('tagForm').addEventListener('submit', e => {
   $('tagForm').hidden = true;
   renderBoard($('boardList'), S.boardIdx, boardKey());
   S.shareCard = null;
+  TEL.track('board_entry', { rank: S.boardIdx + 1, score: S.score, daily: !!S.daily });
   SFX.choose();
   blurActive();
 });
@@ -3988,6 +4104,8 @@ function boot(data) {
   last = performance.now();
   requestAnimationFrame(loop);
   claimPurchase();
+  const strk = getStreak();
+  TEL.track('session_start', { returning: best > 0, best, streak: strk.n, owned: getOwned().length, challenge: !!CHALLENGE, ref: (() => { try { return document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) { return ''; } })(), reduced_motion: REDUCED, cat: store.get('gk.cat', 'yellow'), skin: store.get('gk.skin', 'pink') });
 }
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) hot.snapshot(() => ({ S: S && S.mode !== 'title' ? S : null }));
