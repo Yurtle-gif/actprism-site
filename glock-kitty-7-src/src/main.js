@@ -749,8 +749,13 @@ function animatePlayerChar(p, dt, speed, isGun, isMelee) {
 }
 
 // ------------------------------------------------------------------- Player
+// playable characters (start-screen picker); the choice is remembered
+const CHARACTERS = { hero: 'HELLO KITTY BOY', rohni: 'ROHNi' };
+let playerChar = (() => { try { const c = localStorage.getItem('gk7-char'); return CHARACTERS[c] ? c : 'hero'; } catch (e) { return 'hero'; } })();
+
 function createPlayer() {
-  const real = hasModel('hero') ? buildRealCat('hero') : null;
+  const pick = hasModel(playerChar) ? playerChar : 'hero';
+  const real = hasModel(pick) ? buildRealCat(pick) : null;
   const kitty = real || buildKitty({ rim: { color: 0x59e7ff, power: 2.4, strength: 0.9 } });
   scene.add(kitty.group);
   const p = {
@@ -1159,7 +1164,7 @@ function killBot(bot, byPlayer, dir) {
     audio.elim();
     const w = activeItem();
     const wn = w && w.kind === 'gun' ? w.shortName || w.name : (w && w.kind === 'melee' ? 'Deck' : 'KO');
-    hud.addKill(`<b style="color:#b6ff3a">GlockKitty17</b> <span class="wn">[${wn}]</span> ⟶ <b>${bot.name}</b>`);
+    hud.addKill(`<b style="color:#b6ff3a">${playerChar === 'rohni' && hasModel('rohni') ? 'ROHNi' : 'GlockKitty17'}</b> <span class="wn">[${wn}]</span> ⟶ <b>${bot.name}</b>`);
     hud.banner_('ELIMINATED ' + bot.name, '#ff5fd0', 1600);
   } else if (bot.companion) {
     hud.addKill(`<b>${bot.name}</b> was knocked out`);
@@ -1910,16 +1915,21 @@ function cullFar(dt) {
   for (const o of propsGroup.children) cullObj(o, cx, cz);
   for (const o of worldGroup.children) if (o.userData.cull) cullObj(o, cx, cz);
 }
-let frameEma = 16.7, resT = 0, resScale = 1, basePR = 1;
+let frameEma = 16.7, resT = 0, resScale = 1, basePR = 1, goodT = 0, holdT = 0, raises = 0;
 function adaptResolution(rawDt) {
   frameEma += (rawDt * 1000 - frameEma) * 0.05;
+  holdT = Math.max(0, holdT - rawDt);
+  goodT = frameEma < 13 ? goodT + rawDt : 0;
   resT += rawDt;
   if (resT < 1) return;
   resT = 0;
+  // Each change reallocates every render target, which shows as a hitch, so
+  // drop quickly but climb back slowly, and settle for good after a few tries
+  // instead of see-sawing between two sizes every second.
   let next = resScale;
   const floor = QP.floor; // 4K Ultra never trades sharpness for frames
-  if (frameEma > 22 && resScale > floor) next = Math.max(floor, resScale - 0.15);
-  else if (frameEma < 14 && resScale < 1) next = Math.min(1, resScale + 0.1);
+  if (frameEma > 24 && resScale > floor) { next = Math.max(floor, resScale - 0.15); holdT = 8 + raises * 8; goodT = 0; }
+  else if (goodT > 4 && holdT <= 0 && resScale < 1 && raises < 3) { next = Math.min(1, resScale + 0.1); raises++; goodT = 0; }
   if (next === resScale) return;
   resScale = next;
   renderer.setPixelRatio(basePR * resScale);
@@ -2002,6 +2012,23 @@ function addQualityToggle() {
     e.stopPropagation(); setQuality(k); location.reload();
   });
   scr.appendChild(q);
+}
+
+function addCharacterPicker() {
+  const scr = document.querySelector('.gk-screen'); if (!scr) return;
+  const avail = Object.keys(CHARACTERS).filter((k) => hasModel(k));
+  if (avail.length < 2) return;
+  const q = document.createElement('div'); q.className = 'gk-quality gk-charpick';
+  const draw = () => { q.innerHTML = 'PLAYER ' + avail.map((k) => `<span data-c="${k}" class="${k === playerChar ? 'on' : ''}">${CHARACTERS[k]}</span>`).join(''); };
+  draw();
+  q.addEventListener('click', (e) => {
+    const k = e.target.dataset && e.target.dataset.c;
+    if (!k) return;
+    e.stopPropagation(); playerChar = k; draw();
+    try { localStorage.setItem('gk7-char', k); } catch (err) { /* ignore */ }
+  });
+  const qt = scr.querySelector('.gk-quality');
+  scr.insertBefore(q, qt || null);
 }
 
 function handleKey(code) {
@@ -2096,6 +2123,7 @@ async function init() {
   const btn = hud.showScreen('start');
   if (btn) btn.onclick = () => { audio.resume(); startMatch(); lockPointer(); };
   addQualityToggle();
+  addCharacterPicker();
 
   animate();
 }

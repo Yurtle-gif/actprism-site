@@ -160,8 +160,10 @@ function prepCharacter(name, gltf) {
 // side never goes muddy, and a thin ink outline (inverted hull, skinned).
 const heroMats = new Map();
 let maxAniso = 8;
-function heroMaterial(src) {
-  if (heroMats.has(src)) return heroMats.get(src);
+// yellow: the Hello Kitty boy's cartoon-yellow skin; ROHNi keeps his own skin tone
+function heroMaterial(src, yellow = true) {
+  const key = yellow ? src : src.uuid + ':n';
+  if (heroMats.has(key)) return heroMats.get(key);
   const m = src.clone();
   if (m.map) {
     m.map.anisotropy = maxAniso;
@@ -176,7 +178,7 @@ function heroMaterial(src) {
     // > blue, moderately saturated) to cartoon yellow, keeping their shading so
     // tattoos stay readable; pink shorts, white trims and black hair keep
     // their colors
-    shader.fragmentShader = shader.fragmentShader.replace(
+    if (yellow) shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
       {
@@ -193,7 +195,8 @@ function heroMaterial(src) {
         // yellow with faint tattoos instead of a blotchy pattern
         vec3 yel = vec3( 1.0, 0.82, 0.1 ) * ( 0.62 + 0.4 * clamp( lum * 2.4, 0.0, 1.0 ) );
         diffuseColor.rgb = mix( c, yel, skin );
-      }`).replace(
+      }`);
+    shader.fragmentShader = shader.fragmentShader.replace(
       '#include <dithering_fragment>',
       `#include <dithering_fragment>
       {
@@ -206,8 +209,8 @@ function heroMaterial(src) {
         gl_FragColor.rgb += base * 0.16 * lift + rimCol * rim * 0.55;
       }`);
   };
-  m.customProgramCacheKey = () => 'gk-hero';
-  heroMats.set(src, m);
+  m.customProgramCacheKey = () => (yellow ? 'gk-hero' : 'gk-hero-n');
+  heroMats.set(key, m);
   return m;
 }
 const outlineMat = new THREE.MeshBasicMaterial({ color: 0x0b0614, side: THREE.BackSide });
@@ -241,12 +244,12 @@ export function makeCharacter(name) {
     if (o.isBone) bones[o.name] = o;
     if (o.isMesh) {
       o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
-      if (o.material) o.material = heroMaterial(o.material);
+      if (o.material) o.material = heroMaterial(o.material, name !== 'rohni');
       if (o.isSkinnedMesh) skinned.push(o);
     }
   });
   // ink outline on the player only: it doubles the skinned triangles
-  if (name === 'hero') for (const o of skinned) addOutline(o);
+  if (name === 'hero' || name === 'rohni') for (const o of skinned) addOutline(o);
   const rest = {};
   for (const [k, b] of Object.entries(bones)) rest[k] = b.quaternion.clone();
   const root = new THREE.Group(); root.add(model);
