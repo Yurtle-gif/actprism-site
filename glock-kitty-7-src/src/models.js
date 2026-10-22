@@ -240,7 +240,8 @@ export function makeCharacter(name) {
       if (o.isSkinnedMesh) skinned.push(o);
     }
   });
-  for (const o of skinned) addOutline(o);
+  // ink outline on the player only: it doubles the skinned triangles
+  if (name === 'hero') for (const o of skinned) addOutline(o);
   const rest = {};
   for (const [k, b] of Object.entries(bones)) rest[k] = b.quaternion.clone();
   const root = new THREE.Group(); root.add(model);

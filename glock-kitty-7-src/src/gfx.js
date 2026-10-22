@@ -69,9 +69,32 @@ const SpeedLineShader = {
     }`,
 };
 
+// --- Final color grade (display space): vibrance, contrast, soft vignette ---
+// Pushes the image toward Fortnite's clean saturated look without blowing out
+// skin or neon that is already saturated.
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, uVibrance: { value: 0.32 }, uContrast: { value: 1.08 }, uVignette: { value: 0.22 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uVibrance, uContrast, uVignette; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+      c.rgb = mix(vec3(l), c.rgb, 1.0 + uVibrance * (1.0 - (mx - mn)));
+      c.rgb = (c.rgb - 0.5) * uContrast + 0.5;
+      vec2 d = vUv - 0.5; c.rgb *= 1.0 - uVignette * smoothstep(0.35, 0.85, length(d) * 1.2);
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, 1.0), c.a);
+    }`,
+};
+
 export function createComposer(renderer, scene, camera) {
   const size = renderer.getSize(new THREE.Vector2());
-  const composer = new EffectComposer(renderer);
+  // the composer's render targets skip the canvas MSAA, so give them their own
+  // samples; otherwise every edge in the game is jagged
+  const pr = renderer.getPixelRatio();
+  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: LOW_MEM ? 2 : 4 });
+  const composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.65, 0.4, 0.85);
   composer.addPass(bloom);
@@ -79,11 +102,15 @@ export function createComposer(renderer, scene, camera) {
   speedPass.uniforms.uAspect.value = size.x / size.y;
   composer.addPass(speedPass);
   composer.addPass(new OutputPass());
+  const grade = new ShaderPass(GradeShader);
+  composer.addPass(grade);
   return {
-    composer, bloom, speedPass,
+    composer, bloom, speedPass, grade,
     setSize(w, h) {
       composer.setSize(w, h);
-      bloom.setSize(w, h);
+      // bloom is a soft glow: half resolution looks the same and costs a quarter
+      const pr = renderer.getPixelRatio();
+      bloom.setSize(Math.round(w * pr * 0.5), Math.round(h * pr * 0.5));
       speedPass.uniforms.uAspect.value = w / h;
     },
   };
@@ -277,22 +304,24 @@ export function setupEnvironment(renderer, scene) {
   const envRT = pmrem.fromEquirectangular(eqTex);
   scene.environment = envRT.texture;
   scene.background = eqTex;
-  scene.fog = new THREE.FogExp2(0x1a0f2e, 0.0052);
+  scene.fog = new THREE.FogExp2(0x1a0f2e, 0.0038);
   eqTex.dispose(); pmrem.dispose(); void sky;
 
-  const hemi = new THREE.HemisphereLight(0x9a6cff, 0x160b26, 0.55);
+  const hemi = new THREE.HemisphereLight(0xa88cff, 0x1c0f30, 0.8);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xffd9f2, 1.6);
+  const sun = new THREE.DirectionalLight(0xffe2f4, 2.0);
   sun.position.set(60, 120, 40);
   sun.castShadow = true;
   sun.shadow.mapSize.setScalar(LOW_MEM ? 1024 : 2048);
-  const d = 120;
+  // the sun follows the player, so a tight frustum keeps shadows crisp
+  const d = 55;
   sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
   sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 400;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
+  sun.shadow.radius = 3;
   scene.add(sun);
   scene.add(sun.target);
 

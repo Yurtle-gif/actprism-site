@@ -240,6 +240,65 @@ function buildWorld() {
     makeStylized({ color: 0xff5fd0, roughness: 0.4, emissive: 0xff5fd0, emissiveIntensity: 0.5 }, { color: 0x5fe0ff, strength: 0.6 }));
   blimp.rotation.z = Math.PI / 2; blimp.position.set(0, 110, 30);
   worldGroup.add(blimp);
+
+  mergeStatic();
+}
+
+// Draw-call diet: every building, pillar and rooftop billboard is static, and
+// box faces with a material array cost one draw call per face. Bake them into
+// one mesh per material (world space), which drops ~1000 draw calls to a few
+// dozen. Collision uses the solids/tops arrays, and raycasts still hit the
+// merged meshes, so gameplay is unchanged.
+function mergeStatic() {
+  const buckets = new Map();
+  const take = (mesh) => {
+    const g = mesh.geometry, mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (!g.attributes.uv || !g.attributes.normal) return false;
+    mesh.updateMatrixWorld(true);
+    const m = mesh.matrixWorld, nm = new THREE.Matrix3().getNormalMatrix(m);
+    const idx = g.index ? g.index.array : null;
+    const count = idx ? idx.length : g.attributes.position.count;
+    const groups = g.groups.length ? g.groups : [{ start: 0, count, materialIndex: 0 }];
+    const P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv;
+    const v = new THREE.Vector3();
+    for (const gr of groups) {
+      const mat = mats[gr.materialIndex ?? 0];
+      if (!mat) continue;
+      let b = buckets.get(mat);
+      if (!b) { b = { p: [], n: [], u: [] }; buckets.set(mat, b); }
+      for (let i = gr.start; i < gr.start + gr.count && i < count; i++) {
+        const k = idx ? idx[i] : i;
+        v.fromBufferAttribute(P, k).applyMatrix4(m); b.p.push(v.x, v.y, v.z);
+        v.fromBufferAttribute(N, k).applyMatrix3(nm).normalize(); b.n.push(v.x, v.y, v.z);
+        b.u.push(U.getX(k), U.getY(k));
+      }
+    }
+    return true;
+  };
+  const merged = [];
+  for (const o of [...hitWorld.children]) {
+    if (!o.isMesh || o.geometry.type === 'PlaneGeometry') continue;  // keep the ground plane on its own
+    if (take(o)) { hitWorld.remove(o); merged.push(o); }
+  }
+  for (const o of [...worldGroup.children]) {
+    if (!o.userData.billboard) continue;
+    let ok = true;
+    o.traverse((m) => { if (m.isMesh && ok) ok = !!(m.geometry.attributes.uv && m.geometry.attributes.normal); });
+    if (!ok) continue;
+    o.traverse((m) => { if (m.isMesh) take(m); });
+    worldGroup.remove(o); merged.push(o);
+  }
+  for (const [mat, b] of buckets) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(b.p, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(b.n, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(b.u, 2));
+    g.computeBoundingSphere(); g.computeBoundingBox();
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    hitWorld.add(mesh);
+  }
+  for (const o of merged) o.traverse((m) => { if (m.isMesh) m.geometry.dispose(); });
 }
 
 // ---- Flock Kitty city art: painted storefront strips, tiled upper floors, rooftop ads
@@ -333,6 +392,7 @@ function addBillboard(bx, bz, bw, bd, bh, poi) {
   if (alongX) { g.position.set(bx + side * (bw / 2 - 0.5), bh, bz); g.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; }
   else { g.position.set(bx, bh, bz + side * (bd / 2 - 0.5)); g.rotation.y = side > 0 ? 0 : Math.PI; }
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  g.userData.billboard = true;
   worldGroup.add(g);
 }
 const STREET_PROPS = [
@@ -357,6 +417,7 @@ function placeDecor(name, opts, x, z, rotY) {
   const g = makeProp(name, opts);
   if (!g) return null;
   g.position.set(x, 0, z); g.rotation.y = rotY ?? rand(0, Math.PI * 2);
+  g.userData.cull = true;
   worldGroup.add(g);
   return g;
 }
@@ -882,9 +943,11 @@ function updateCamera(dt) {
   const len = dir.length(); dir.normalize();
   rayc.set(focus, dir); rayc.far = len;
   const hits = rayc.intersectObjects(hitWorld.children, true);
-  if (hits.length && hits[0].distance < len) {
-    camPos = focus.clone().addScaledVector(dir, Math.max(0.6, hits[0].distance - 0.3));
-  }
+  // spring arm: snap in when a wall blocks the view, ease back out after
+  let want = len;
+  if (hits.length && hits[0].distance < len) want = Math.max(0.6, hits[0].distance - 0.3);
+  p.camDist = p.camDist == null ? want : (want < p.camDist ? want : p.camDist + (want - p.camDist) * (1 - Math.exp(-6 * dt)));
+  camPos = focus.clone().addScaledVector(dir, Math.min(p.camDist, len));
   camera.position.copy(camPos);
   camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
 }
@@ -1727,11 +1790,50 @@ function update(dt) {
   });
 }
 
+// Smoothness: small props and decor past the fog line are hidden and only
+// nearby ones cast shadows; render resolution drops when frames run long and
+// climbs back when there is headroom.
+const CULL_FAR = 110, SHADOW_NEAR = 45;
+let cullT = 0;
+function cullObj(o, cx, cz) {
+  const dx = o.position.x - cx, dz = o.position.z - cz, d2 = dx * dx + dz * dz;
+  o.visible = d2 < CULL_FAR * CULL_FAR;
+  if (!o.visible) return;
+  const cast = d2 < SHADOW_NEAR * SHADOW_NEAR;
+  if (o.userData._cast === cast) return;
+  o.userData._cast = cast;
+  o.traverse((m) => { if (m.isMesh) m.castShadow = cast; });
+}
+function cullFar(dt) {
+  cullT -= dt;
+  if (cullT > 0) return;
+  cullT = 0.25;
+  const cx = camera.position.x, cz = camera.position.z;
+  for (const o of propsGroup.children) cullObj(o, cx, cz);
+  for (const o of worldGroup.children) if (o.userData.cull) cullObj(o, cx, cz);
+}
+let frameEma = 16.7, resT = 0, resScale = 1, basePR = 1;
+function adaptResolution(rawDt) {
+  frameEma += (rawDt * 1000 - frameEma) * 0.05;
+  resT += rawDt;
+  if (resT < 1) return;
+  resT = 0;
+  let next = resScale;
+  if (frameEma > 22 && resScale > 0.55) next = Math.max(0.55, resScale - 0.15);
+  else if (frameEma < 14 && resScale < 1) next = Math.min(1, resScale + 0.1);
+  if (next === resScale) return;
+  resScale = next;
+  renderer.setPixelRatio(basePR * resScale);
+  renderer.setSize(W, H);
+  comp.setSize(W, H);
+}
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const raw = clock.getDelta();
+  const dt = Math.min(raw, 0.05);
   update(dt);
-  if (comp) comp.composer.render();
+  if (running) cullFar(dt);
+  if (comp) { adaptResolution(Math.min(raw, 0.25)); comp.composer.render(); }
   else renderer.render(scene, camera);
 }
 
@@ -1812,6 +1914,7 @@ let stormVignette;
 async function init() {
   const canvas = document.getElementById('game');
   renderer = createRenderer(canvas);
+  basePR = renderer.getPixelRatio();
   // if the GPU drops the context (out of memory, tab backgrounded on a phone) say so instead of freezing on a black frame
   canvas.addEventListener('webglcontextlost', (e) => {
     e.preventDefault(); running = false;
@@ -1824,6 +1927,7 @@ async function init() {
   lights = setupEnvironment(renderer, scene);
   scene.background = makeSkyBackground();
   comp = createComposer(renderer, scene, camera);
+  comp.setSize(W, H);
 
   const ov = document.getElementById('overlay');
   const loading = document.createElement('div');
@@ -1869,7 +1973,7 @@ if (import.meta.env.VITE_GK_TEST) {
     get running() { return running; }, get matchOver() { return matchOver; }, get locked() { return locked; },
     get buildGroup() { return buildGroup; }, get botGroup() { return botGroup; }, get lootGroup() { return lootGroup; },
     startMatch, winMatch, killBot, damageBot, aliveRivals, CONFIG, keys, update, getForward,
-    ART, hasModel, makeProp, vehicles, get propsGroup() { return propsGroup; }, get worldGroup() { return worldGroup; }, get hitWorld() { return hitWorld; },
+    ART, hasModel, makeProp, vehicles, cullFar, get renderer() { return renderer; }, get comp() { return comp; }, get propsGroup() { return propsGroup; }, get worldGroup() { return worldGroup; }, get hitWorld() { return hitWorld; },
     setAds(v) { adsDown = v; }, setFire(v) { fireDown = v; fireEdge = v; }, setLocked(v) { locked = v; },
   };
 }
