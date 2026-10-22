@@ -78,6 +78,18 @@ kbd{font:700 13px/1 var(--f-body);letter-spacing:.06em;text-transform:uppercase;
 .daily{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px;padding:16px 18px;border:2px solid var(--menace);border-radius:10px;background:var(--panel)}
 .daily>div{flex:1 1 260px;display:grid;gap:6px;min-width:0}
 .daily .eyebrow{color:var(--menace)}
+.netbox{display:grid;gap:10px;padding:16px 18px;border:2px solid var(--kitty);border-radius:10px;background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.netbox .eyebrow{color:var(--kitty)}
+.netrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.netrow input{flex:1 1 130px;min-width:0;font:400 18px/1 var(--f-display);letter-spacing:.04em;color:var(--ink);background:var(--night);border:2px solid var(--line);border-radius:6px;padding:10px 12px;-webkit-user-select:text;user-select:text}
+.netrow input.code{flex:0 1 112px;text-transform:uppercase;letter-spacing:.14em}
+.netrow input:focus{outline:none;border-color:var(--kitty)}
+.netor{color:var(--ink-dim);font:600 15px/1 var(--f-body)}
+.netcode{margin:0;font:400 15px/1.1 var(--f-body);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim)}
+.netcode b{margin-left:10px;font:400 30px/1 var(--f-display);letter-spacing:.12em;color:var(--brass);-webkit-user-select:text;user-select:text}
+.roster{list-style:none;margin:0;padding:0;display:grid;gap:4px;font:600 16px/1.3 var(--f-body);color:var(--ink)}
+.roster span{color:var(--ink-dim);font-weight:500}
+#netWait{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 96px);transform:translateX(-50%);z-index:5;padding:10px 16px;border-radius:8px;background:rgba(16,11,31,.86);border:2px solid var(--kitty);color:var(--ink);font:600 16px/1.3 var(--f-body);text-align:center;max-width:min(92vw,520px);pointer-events:none}
 .streak{margin:0;font-size:16px;color:var(--ink)}
 .streak b{color:var(--brass);font-weight:700}
 .teaser{margin:0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;font-size:15px;color:var(--ink-dim)}
@@ -150,6 +162,7 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
 </head><body>
 <canvas id="game" aria-label="Flock Kitty game area"></canvas>
 <div id="safe"></div>
+<div id="netWait" hidden></div>
 
 <div id="touch" hidden>
   <button id="tPause" class="tbtn" type="button" aria-label="Pause">II</button>
@@ -197,6 +210,22 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
       <button id="dailyBtn" class="btn" type="button">Play today's run</button>
     </div>
     <p class="streak" id="streakLine"></p>
+    <div class="netbox" id="netBox">
+      <p class="eyebrow">Play online · co-op for up to 4</p>
+      <div class="netrow" id="netIdle">
+        <input id="netName" maxlength="12" autocomplete="off" spellcheck="false" placeholder="Your name" aria-label="Your name">
+        <button id="netHost" class="btn ghost" type="button">Host a room</button>
+        <span class="netor">or</span>
+        <input id="netCode" class="code" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code" aria-label="Room code">
+        <button id="netJoin" class="btn ghost" type="button">Join</button>
+      </div>
+      <div id="netRoom" hidden>
+        <p class="netcode">Room<b id="netCodeShow"></b></p>
+        <ul class="roster" id="netRoster"></ul>
+        <div class="row"><button id="netLeave" class="btn ghost" type="button">Leave room</button></div>
+      </div>
+      <p class="note" id="netNote"></p>
+    </div>
     <p class="teaser"><b>Coming soon</b><span id="teaserTxt"></span></p>
     <div class="row">
       <button id="shopBtn" class="btn ghost" type="button" aria-expanded="false">Shop</button>
@@ -252,6 +281,8 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
       <p>When you share a run, the image and link contain your score, wave, tag and a link back to the game. Nothing else is included. Who you send them to, and what that app does with them, is up to you and that app.</p>
       <h3>Hosting</h3>
       <p>The game is served by Cloudflare Pages, which keeps standard, short-lived server logs (such as request time and IP address) to run and protect the service. Those logs are Cloudflare's and are not used by the game.</p>
+      <h3>Online play</h3>
+      <p>When you host or join a room, the game connects to our small room server on Cloudflare. It passes moves, shots and the name you typed between the players in that room while the room is open, and keeps nothing after it closes. Anyone with the room code can join, so share it only with people you want to play with.</p>
       <h3>Children</h3>
       <p>The game is not directed at children under 13 and does not knowingly collect personal information from them.</p>
       <h3>Changes and contact</h3>
@@ -313,6 +344,7 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
     </div>
     <p class="note" id="oCheck" hidden>Retrying starts the boss wave again with all nine lives and the upgrades you had.</p>
     <div class="row">
+      <p class="note" id="netOverNote" hidden>The host starts the next run. Stay here and you're in it.</p>
       <button id="retryBtn" class="btn" type="button" hidden>Retry boss</button>
       <button id="againBtn" class="btn" type="button">Play again</button>
       <button id="shareBtn" class="btn ghost" type="button">Share score</button>
@@ -327,7 +359,7 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
       </div>
       <p class="note" id="shareNote">The link dares a friend to beat this exact score.</p>
     </div>
-    <p class="note desk-only">Enter runs it back instantly.</p>
+    <p class="note desk-only" id="enterHint">Enter runs it back instantly.</p>
   </div>
 </section>
 
@@ -766,7 +798,7 @@ function makeState(mode) {
     score: 0, kills: 0, combo: 0, comboT: 0, nextId: 1, banner: null, offer: [], slowmo: 0, deathT: 0, newBest: false, cine: null, finale: null, checkpoint: null, ride: null, daily: null, runT: 0, mk: 0, mkT: -9, beat: false,
     p: { x: mode === 'title' ? 1010 : 760, y: mode === 'title' ? 170 : 700, vx: 0, vy: 0, r: 13, lives: 9, inv: 0, ammo: 17, reloadT: 0, reloadMax: 1, fireCD: 0, dashCD: 0, dashT: 0,
          ddx: 1, ddy: 0, aim: -0.4, walk: 0, flash: 0, recoil: 0, frenzy: 0, spread: 0, lean: 0, gun: 'glock', jam: 1, cash: 0, dead: false, picks: {}, hitIds: [], kbT: 0 },
-    enemies: [], bullets: [], shots: [], pickups: []
+    enemies: [], bullets: [], shots: [], pickups: [], mates: []
   };
 }
 function calcStats() {
@@ -941,6 +973,7 @@ function syncControlHints() {
 }
 addEventListener('keydown', e => {
   if (!S) return;
+  if (e.target && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') { if (e.code === 'Enter' && e.target.id === 'netCode') netJoinClick(); return; }
   keys.add(e.code);
   const play = S.mode === 'play';
   if (play && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1180,6 +1213,7 @@ function resetRun() {
   stickL.id = stickR.id = null;
 }
 function startGame(daily) {
+  if (NET.client) return;
   if (S && S.mode !== 'title' && S.mode !== 'over' && S.mode !== 'paused') return;
   daily = daily === true;
   resetRun();
@@ -1196,11 +1230,13 @@ function startGame(daily) {
   else if (daily) banner('Daily challenge', dailyMod(S.daily).name + ' · same run for everyone today', 2.6);
   S.runId = TEL.newRun(); S.tel = telRun();
   ftue('first_run'); if (daily) ftue('first_daily');
+  if (NET.host) hostBeginRun();
   TEL.track('run_start', { daily, diff: S.diff, cat: store.get('gk.cat', 'yellow'), fit: store.get('gk.fit', 'og'), skin: store.get('gk.skin', 'pink'), lives: S.p.lives, picks: Object.keys(S.p.picks).join(','), pass: owned('kitty_pass'), streak: st.s.n, mod: daily ? dailyMod(S.daily).id : '' });
   showFor('play');
 }
 // dying on or after a boss wave restarts that boss wave with full lives and the same upgrades
 function retryCheckpoint() {
+  if (NET.client) return;
   if (!S || S.mode !== 'over' || !S.checkpoint) return;
   const cp = S.checkpoint;
   const key = S.runKey, daily = S.daily;
@@ -1215,16 +1251,20 @@ function retryCheckpoint() {
   startWave();
   showFor('play');
   S.runId = TEL.newRun(); S.tel = telRun();
+  if (NET.host) hostBeginRun();
   TEL.track('run_retry', { wave: cp.wave, score: cp.score, daily: !!daily });
 }
 function toTitle() {
+  // a player who walks out leaves the room; the host stays in it and takes everyone back to the lobby
+  if (NET.client && !NET.fromHost) netLeave();
+  if (NET.host) NET.send('*' + JSON.stringify({ t: 'lobby' }));
   S = makeState('title');
   calcStats();
   FX.parts.length = 0; FX.texts.length = 0; FX.casings.length = 0; FX.decals.length = 0;
   updCam(0, true);
   showFor('title');
 }
-function pauseGame() { if (S.mode !== 'play') return; S.mode = 'paused'; showFor('paused'); }
+function pauseGame() { if (S.mode !== 'play' || NET.host) return; S.mode = 'paused'; showFor('paused'); }
 function resumeGame() { if (S.mode !== 'paused') return; S.mode = 'play'; mouse.down = false; showFor('play'); }
 function gameOver() {
   S.mode = 'over';
@@ -1279,6 +1319,7 @@ function showFor(mode) {
     if (cp) $('retryBtn').textContent = 'Retry from wave ' + cp.wave;
     $('againBtn').className = cp ? 'btn ghost' : 'btn';
     $('againBtn').textContent = cp ? 'Start over' : 'Play again';
+    $('againBtn').hidden = NET.client; $('netOverNote').hidden = !NET.client; $('enterHint').hidden = NET.client;
     // the leaderboard: ask for a tag when this run makes the top 10
     if (S.boardIdx == null) {
       S.boardIdx = -1;
@@ -1314,12 +1355,14 @@ function startWave() {
   p.ammo = ST.mag; p.reloadT = 0;
   const pool = Object.keys(ET).filter(k => ET[k].minWave <= n);
   const bossN = Math.floor(n / 5);
-  let budget = Math.round((boss ? (bossN === 1 ? 3 : 4 + n) : 6 + n * 4) * D().budget);
+  let budget = Math.round((boss ? (bossN === 1 ? 3 : 4 + n) : 6 + n * 4) * D().budget * coopK(0.45));
+  reviveTeam();
   let t = boss ? 4 : 0.3;
   if (boss) {
     S.checkpoint = { wave: n, picks: Object.assign({}, p.picks), score: S.score, kills: S.kills, cash: p.cash, gun: p.gun };
     // walk into every boss fight with at least three lives back
     if (p.lives < 9) { const got = Math.min(9, p.lives + 3) - p.lives; p.lives += got; floatText(p.x, p.y - 80, '+' + got + (got === 1 ? ' life' : ' lives'), C.kitty, 16); }
+    for (const o of S.mates) o.lives = Math.min(9, o.lives + 3);
     const pt = spawnPoint('boss');
     S.cine = { t: 0, x: pt.x, y: pt.y, id: 0, landed: false, roared: false, kind: bossKind(n) };
   }
@@ -1390,7 +1433,7 @@ function endCine() {
   S.cine = null; S.waveState = 'fight'; S.clock = 0; S.banner = null;
   syncTouchUI();
 }
-function skipCine() { if (S.cine && S.cine.t > 0.4) endCine(); }
+function skipCine() { if (S.cine && S.cine.t > 0.4 && !NET.client) endCine(); }
 function spawnPoint(type) {
   const p = S.p, r = ET[type].r;
   const minD = type === 'boss' ? 420 : 340;
@@ -1418,7 +1461,7 @@ function spawnEnemy(type, x, y) {
   const T = ET[type];
   const sc = 1 + (S.wave - 1) * 0.09;
   const bossN = Math.floor(S.wave / 5);
-  const hp = T.hp * sc * (type === 'boss' ? 1 + (bossN - 1) * 0.5 : 1) * D().hp;
+  const hp = T.hp * sc * (type === 'boss' ? 1 + (bossN - 1) * 0.5 : 1) * D().hp * coopK(0.35);
   const e = { id: S.nextId++, t: type, x, y, vx: 0, vy: 0, r: T.r, hp, maxhp: hp, flash: 0, st: 'move', stT: rand(1.2, 2.6),
     dir: 0, face: 1, anim: Math.random() * 10, cd: rand(1, 2), squish: 0, phase: 0, enr: false, dead: false };
   collide(e);
@@ -1484,6 +1527,7 @@ function leaveShop() {
   SFX.choose();
   S.mode = 'play';
   showFor('play');
+  reviveTeam();
   // after a boss goes down, the cat rides out of the block before the next wave
   if (S.wave % 5 === 0) startRide(); else startWave();
 }
@@ -1513,6 +1557,8 @@ function chooseUpgrade(id) {
 function useJammer() {
   const p = S.p;
   if (p.dead) return;
+  // a joined player asks the host, whose block it is, to fire it
+  if (NET.client) { if (p.jam > 0) NET.wantJam = true; else { SFX.empty(); floatText(p.x, p.y - 78, 'No jammers left', C.dim, 14); } return; }
   if (p.jam <= 0) { SFX.empty(); floatText(p.x, p.y - 78, 'No jammers left', C.dim, 14); return; }
   p.jam--;
   let n = 0;
@@ -1568,7 +1614,7 @@ function tryFire(moving) {
   if (!frenzy) p.ammo--;
   const n = p.spread > 0 ? 3 : 1;
   const guns = ST.akimbo ? [-1, 1] : [0];
-  const px = Math.cos(p.aim + Math.PI / 2), py = Math.sin(p.aim + Math.PI / 2);
+  const px = Math.cos(p.aim + Math.PI / 2), py = Math.sin(p.aim + Math.PI / 2), n0 = S.bullets.length;
   for (const g of guns) {
     for (let i = 0; i < n; i++) {
       const base = p.aim + (n > 1 ? (i - 1) * 0.17 : 0);
@@ -1580,6 +1626,7 @@ function tryFire(moving) {
       }
     }
   }
+  if (NET.client) for (let i = n0; i < S.bullets.length; i++) { const b = S.bullets[i]; NET.outB.push([b.x, b.y, b.vx, b.vy, b.dmg, b.life, b.pierce, b.bounce]); }
   p.flash = 0.05; p.recoil = 1;
   shake(2.2);
   ejectCasing();
@@ -1599,19 +1646,21 @@ function hurtPlayer(sx, sy, kb = 320) {
   const p = S.p;
   if (p.inv > 0 || p.dashT > 0 || p.dead) return;
   p.lives--;
-  if (S.tel) { S.tel.hits++; TEL.track('player_hit', { wave: S.wave, lives: p.lives, x: Math.round(p.x / 50) * 50, y: Math.round(p.y / 50) * 50, city: SCN().name, boss: S.enemies.some(e => e.t === 'boss') }); }
+  if (S.tel && isMe(p)) { S.tel.hits++; TEL.track('player_hit', { wave: S.wave, lives: p.lives, x: Math.round(p.x / 50) * 50, y: Math.round(p.y / 50) * 50, city: SCN().name, boss: S.enemies.some(e => e.t === 'boss') }); }
   p.inv = (touchMode ? 1.9 : 1.4) * ST.invMul;
   const a = Math.atan2(p.y - sy, p.x - sx);
   p.vx = Math.cos(a) * kb; p.vy = Math.sin(a) * kb; p.kbT = 0.22;
-  shake(12); FX.hurt = 1; S.slowmo = 0.16; S.combo = 0;
+  S.combo = 0;
+  if (isMe(p)) { shake(12); FX.hurt = 1; S.slowmo = 0.16; }
   burst(p.x, p.y, 30, [C.kitty, C.kittyLight, C.kicks], 12, 160, 'fur');
   floatText(p.x, p.y - 78, p.lives > 0 ? (p.lives + (p.lives === 1 ? ' life left' : ' lives left')) : 'Out of lives', C.hurt, 15);
   SFX.oof();
   if (p.lives <= 0) {
-    p.dead = true; S.deathT = 1.4; S.slowmo = 1.1;
+    p.dead = true; S.deathT = 1.4; if (isMe(p)) S.slowmo = 1.1;
     burst(p.x, p.y, 30, [C.kitty, C.kittyLight, C.kicks, C.brass], 30, 240, 'fur');
     SFX.over();
   }
+  if (!isMe(p)) NET.to(p.id, { t: 'hurt', l: p.lives, iv: p.inv, vx: p.vx, vy: p.vy, d: p.dead ? 1 : 0 });
 }
 function updatePlayer(dt, inp) {
   const p = S.p;
@@ -2073,7 +2122,7 @@ function updateBullets(dt) {
         const T = ET[e.t], rr = T.hr + 3, cy = e.y - T.hc;
         const hy = T.span ? clamp(b.y - 15, cy - T.span, cy + T.span) : cy;
         if (d2(b.x, b.y - 15, e.x, hy) >= rr * rr) continue;
-        damageEnemy(e, b.dmg, b.vx, b.vy);
+        if (NET.client) SFX.hit(); else damageEnemy(e, b.dmg, b.vx, b.vy);
         burst(b.x, b.y, 15, [T.col, C.ink], 3, 120, 'spark');
         b.hit.push(e.id);
         if (b.pierce > 0) b.pierce--; else { dead = true; break; }
@@ -2083,7 +2132,7 @@ function updateBullets(dt) {
   }
 }
 function updateShots(dt) {
-  const p = S.p, list = S.shots;
+  const list = S.shots, ps = team();
   for (let i = list.length - 1; i >= 0; i--) {
     const s = list[i];
     s.life -= dt;
@@ -2091,18 +2140,19 @@ function updateShots(dt) {
       // an expanding ground ring: it hurts only along its rim, and pouncing through it is safe
       s.r += s.vr * dt;
       if (s.life <= 0) { list.splice(i, 1); continue; }
-      if (!p.dead && p.inv <= 0 && p.dashT <= 0) {
+      for (const p of ps) if (!p.dead && p.inv <= 0 && p.dashT <= 0) {
         const dx = (p.x - s.x), dy = (p.y - s.y) / 0.6, dist = Math.hypot(dx, dy);
-        if (Math.abs(dist - s.r) < 14) hurtPlayer(s.x, s.y, 360);
+        if (Math.abs(dist - s.r) < 14) withP(p, () => hurtPlayer(s.x, s.y, 360));
       }
       continue;
     }
     s.x += s.vx * dt; s.y += s.vy * dt;
     let dead = s.life <= 0;
     if (!dead && solidAt(s.x, s.y)) dead = true;
-    if (!dead && !p.dead) {
+    for (const p of ps) {
+      if (dead || p.dead) continue;
       const rr = s.r + p.r - 3;
-      if (d2(s.x, s.y, p.x, p.y) < rr * rr && p.inv <= 0 && p.dashT <= 0) { hurtPlayer(s.x - s.vx, s.y - s.vy); dead = true; }
+      if (d2(s.x, s.y, p.x, p.y) < rr * rr && p.inv <= 0 && p.dashT <= 0) { withP(p, () => hurtPlayer(s.x - s.vx, s.y - s.vy)); dead = true; }
     }
     if (dead) {
       if (s.k === 'bolt') { burst(s.x, s.y, s.z * 0.6, [C.hurt, '#ffffff'], 5, 110, 'spark'); FX.decals.push({ x: s.x, y: s.y, r: rand(6, 10), life: 1.2, max: 1.2 }); }
@@ -2112,24 +2162,25 @@ function updateShots(dt) {
   }
 }
 function updatePickups(dt) {
-  const p = S.p;
   for (let i = S.pickups.length - 1; i >= 0; i--) {
     const k = S.pickups[i];
     k.t -= dt;
     if (k.t <= 0) { S.pickups.splice(i, 1); continue; }
+    const p = nearestP(k.x, k.y);
     if (p.dead) continue;
     const dd = Math.sqrt(d2(k.x, k.y, p.x, p.y));
     const reach = (ST.magnet ? 170 : 80) * (k.k === 'cash' ? 1.4 : 1) + (k.k === 'cash' && S.waveState === 'clear' ? 600 : 0);
     if (dd < reach) { const s = (ST.magnet ? 420 : 300) * dt / (dd || 1); k.x += (p.x - k.x) * Math.min(1, s); k.y += (p.y - k.y) * Math.min(1, s); }
-    if (dd < p.r + 14) { collect(k); S.pickups.splice(i, 1); }
+    if (dd < p.r + 14) { withP(p, () => collect(k)); if (!isMe(p)) NET.to(p.id, { t: 'got', k: k.k }); S.pickups.splice(i, 1); }
   }
 }
 function collect(k) {
   const p = S.p;
-  if (k.k !== 'cash') TEL.track('pickup', { kind: k.k, wave: S.wave, lives: p.lives });
+  if (k.k !== 'cash' && isMe(p)) TEL.track('pickup', { kind: k.k, wave: S.wave, lives: p.lives });
+  // cash goes in the one team purse (the host's), whoever picks it up
   if (k.k === 'cash') {
     const v = Math.round((k.v || 5) * ST.cashMul);
-    p.cash += v;
+    meP().cash += v;
     if (S.tel) S.tel.earned += v;
     floatText(p.x, p.y - 70, '+$' + v, '#7ee08a', 13);
     SFX.pickup();
@@ -2150,7 +2201,7 @@ function collect(k) {
     if (p.jam < 3) { p.jam++; floatText(p.x, p.y - 78, 'Scammer Jammer +1', C.menace, 16); }
     else { S.score += 250; floatText(p.x, p.y - 78, '+250', C.brass, 16); }
   } else {
-    p.spread = 8; p.cash += 40; floatText(p.x, p.y - 98, '+$40', '#7ee08a', 14);
+    p.spread = 8; meP().cash += 40; floatText(p.x, p.y - 98, '+$40', '#7ee08a', 14);
     floatText(p.x, p.y - 78, 'Money bag. Triple shot', '#7ee08a', 16);
   }
   stars(p.x, p.y, 20, 6, C.brass);
@@ -2174,7 +2225,7 @@ function updateWave(dt) {
         S.spawns.splice(i, 1);
       }
     }
-    if (!S.queue.length && !S.spawns.length && !S.enemies.length && !S.p.dead) {
+    if (!S.queue.length && !S.spawns.length && !S.enemies.length && !allDead()) {
       S.waveState = 'clear'; S.waveT = 1.8;
       const bonus = 100 * S.wave;
       S.score += bonus;
@@ -2185,7 +2236,7 @@ function updateWave(dt) {
     }
   } else if (S.waveState === 'clear') {
     S.waveT -= dt;
-    if (S.waveT <= 0 && !S.p.dead) openUpgrade();
+    if (S.waveT <= 0 && !allDead()) openUpgrade();
   }
 }
 
@@ -2604,13 +2655,16 @@ function step(dt) {
   S.t += dt;
   const inp = readInput();
   updatePlayer(dt, inp);
-  // while the lean is working, enemies, their shots and the spawn clock run at under half speed
-  const edt = S.p.lean > 0 ? dt * 0.42 : dt;
+  if (S.mates.length) hostMates(dt);
+  // while the lean is working (anyone's), enemies, their shots and the spawn clock run at under half speed
+  const edt = team().some(o => o.lean > 0) ? dt * 0.42 : dt;
   updateWave(edt);
   if (S.mode !== 'play') return;
-  for (const e of S.enemies) updEnemy(e, edt);
+  // each cam goes after whichever player is closest
+  if (S.mates.length) for (const e of S.enemies) withP(nearestP(e.x, e.y), () => updEnemy(e, edt));
+  else for (const e of S.enemies) updEnemy(e, edt);
   separate();
-  contactDamage();
+  for (const o of team()) withP(o, contactDamage);
   updateBullets(dt);
   updateShots(edt);
   S.enemies = S.enemies.filter(e => !e.dead);
@@ -2661,7 +2715,7 @@ function updFX(dt) {
 }
 function updCam(dt, snap) {
   if (S.ride && S.mode !== 'title') { updRideCam(snap); return; }
-  const p = S.p;
+  const p = camP();
   let fx = p.x, fy = p.y - 32, tz = 1, follow = 8;
   if (S.mode === 'title') tz = W > H ? 1.9 : 1.3;
   if (S.cine) {
@@ -3886,7 +3940,7 @@ function drawTelegraphs() {
   }
 }
 function drawProjectiles() {
-  for (const b of S.bullets) {
+  for (const b of NET.client ? S.bullets.concat(NET.rb) : S.bullets) {
     const tx = b.x - b.vx * 0.02, ty = b.y - b.vy * 0.02, h = b.h || 15;
     line(tx, ty - h, b.x, b.y - h, 'rgba(255,209,102,.35)', 5);
     line(tx * 0.4 + b.x * 0.6, (ty * 0.4 + b.y * 0.6) - h, b.x, b.y - h, C.brass, 2.4);
@@ -4028,6 +4082,11 @@ function drawHUD() {
   ctx.font = '30px ' + FD; const sw = Math.max(150 * u, ctx.measureText(fmt(S.score)).width * u + 24, ctx.measureText('Best today ' + fmt(Math.max(curBest, S.score))).width * 0.5 * u + 24);
   hudPlate(R - sw - 10, T - 8, sw + 20, 64 * u);
   for (let i = 0; i < 9; i++) lifeIcon(L + 10 * u + i * 22 * u, T + 16 * u, 8 * u, i < p.lives);
+  // the team: one line per other player
+  if (S.mates.length && !S.ride) {
+    let ty = T + (touchMode ? 124 : 78) * u;
+    for (const m of S.mates) { hudText(m.name + ' · ' + (m.dead ? 'down' : m.lives + (m.lives === 1 ? ' life' : ' lives')), L, ty, 14 * u, m.dead ? C.hurt : C.ink, 'left', FB, '700'); ty += 18 * u; }
+  }
   hudText((S.daily ? 'Daily · ' : '') + (S.ride ? 'After wave ' + S.wave + ' · ' + RIDE().name : 'Wave ' + S.wave + ' · ' + SCN().name), L, T + 48 * u, 14 * u, C.dim);
   hudText(fmt(S.score), R, T + 30 * u, 30 * u, C.ink, 'right');
   hudText((S.daily ? 'Best today ' : 'Best ') + fmt(Math.max(curBest, S.score)), R, T + 52 * u, 14 * u, C.dim, 'right', FB, '600');
@@ -4198,10 +4257,12 @@ function render() {
   for (const o of OBST) list.push([o.y + o.h, 0, o]);
   for (const e of S.enemies) list.push([e.y, 1, e]);
   list.push([S.p.y, 2, S.p]);
+  for (const m of S.mates) list.push([m.y, 2, m]);
   list.sort((a, b) => a[0] - b[0]);
   for (const [, kind, obj] of list) {
     if (kind === 0) drawObstacle(obj); else if (kind === 1) drawEnemy(obj); else drawPlayer(obj);
   }
+  for (const m of S.mates) drawTag(m);
   drawProjectiles();
   drawParticles();
   drawFrontWalls();
@@ -4232,6 +4293,362 @@ function updateTouchUI() {
   if (p.jam !== lastJam) { $('tJam').textContent = 'Jam ' + p.jam; $('tJam').classList.toggle('empty', p.jam <= 0); lastJam = p.jam; }
 }
 
+
+/* ---------- online co-op: the host's browser runs the block, up to three friends join by room code ---------- */
+// The rooms Worker only relays text. Host -> "*"+json reaches every player, "<id>:"+json one player.
+// A player's json reaches the host as "<id>:"+json. Each player moves and shoots on their own screen;
+// the host decides everything else (cams, hits, lives, cash, waves) and sends the world 15 times a second.
+const NET = { on: false, host: false, client: false, role: '', ws: null, id: 0, code: '', url: null, roster: [], ev: [], sendT: 0, inT: 0,
+  outB: [], rb: [], snapAt: 0, wantJam: false, lastWave: 0, hostMode: 'play', rideP: null, fromHost: false, waitTxt: '',
+  send(s) { if (this.ws && this.ws.readyState === 1) this.ws.send(s); },
+  to(id, o) { if (this.host) this.send(id + ':' + JSON.stringify(o, rnd2)); } };
+const rnd2 = (k, v) => typeof v === 'number' ? Math.round(v * 100) / 100 : v;
+let REALP = null;
+// run fn as if pl were the player: enemies, hits and pickups written for one cat then work for any of them
+function withP(pl, fn) {
+  if (!pl || pl === S.p) return fn();
+  const keep = S.p, outer = REALP === null;
+  if (outer) REALP = keep;
+  S.p = pl;
+  try { return fn(); } finally { S.p = keep; if (outer) REALP = null; }
+}
+const meP = () => REALP || S.p;
+const isMe = p => p === meP();
+const team = () => S.mates.length && !S.ride ? [meP(), ...S.mates] : [meP()];
+function nearestP(x, y) { let best = meP(), bd = Infinity; for (const o of team()) { if (o.dead) continue; const d = d2(x, y, o.x, o.y); if (d < bd) { bd = d; best = o; } } return best; }
+const allDead = () => team().every(o => o.dead);
+const coopK = a => NET.host && S ? 1 + a * S.mates.length : 1;
+const camP = () => (S.p.dead && S.mates.find(o => !o.dead)) || S.p;
+function reviveTeam() { for (const o of team()) if (o.dead) { o.dead = false; o.lives = 3; o.inv = 2; o.vx = o.vy = 0; } }
+const netName = () => (store.get('gk.name', '') || '').replace(/[^\w .'-]/g, '').slice(0, 12) || (NET.role === 'host' ? 'Player 1' : 'Player');
+
+// visual and sound events on the host are replayed on everyone's screen
+function netEv(k, a) { if (NET.host && S && S.mates.length && NET.ev.length < 90) NET.ev.push([k, a]); }
+{
+  const b0 = burst, s0 = stars, r0 = ring, f0 = floatText;
+  burst = (...a) => { netEv('b', a); return b0(...a); };
+  stars = (...a) => { netEv('st', a); return s0(...a); };
+  ring = (...a) => { netEv('r', a); return r0(...a); };
+  floatText = (...a) => { netEv('f', a); return f0(...a); };
+  const quiet = new Set(['shot', 'empty', 'magOut', 'magIn', 'tink', 'choose', 'dash', 'pickup', 'hit']);
+  for (const k of Object.keys(SFX)) {
+    if (quiet.has(k) || typeof SFX[k] !== 'function') continue;
+    const f = SFX[k];
+    SFX[k] = (...a) => { netEv('s', [k]); return f(...a); };
+  }
+}
+
+async function netBase() {
+  if (NET.url !== null) return NET.url;
+  let u = '';
+  try { u = new URLSearchParams(location.search).get('rooms') || ''; } catch (e) {}
+  if (!u) try { const r = await fetch('/net.json', { cache: 'no-store' }); if (r.ok) u = (await r.json()).rooms || ''; } catch (e) {}
+  NET.url = String(u).replace(/\/+$/, '');
+  return NET.url;
+}
+function netNote(t) { $('netNote').textContent = t || ''; }
+function netReset() {
+  NET.on = NET.host = NET.client = false; NET.ws = null; NET.id = 0; NET.roster = []; NET.code = ''; NET.role = '';
+  NET.outB = []; NET.rb = []; NET.ev = []; NET.rideP = null;
+  if (S) S.mates = [];
+}
+function netLeave() { const ws = NET.ws; netReset(); if (ws) try { ws.close(1000, 'bye'); } catch (e) {} netUI(); }
+async function netConnect(role, code) {
+  const base = await netBase();
+  if (!base) { netNote('Online play works on the live game at glockkitty.pages.dev.'); return; }
+  netLeave();
+  const L = lookOf(), name = netName();
+  let ws;
+  try { ws = new WebSocket(base + '/room/' + code + '?role=' + role + '&name=' + encodeURIComponent(name) + '&cat=' + L.cat + '&fit=' + L.fit); }
+  catch (e) { netNote("Couldn't reach the room server."); return; }
+  NET.ws = ws; NET.code = code; NET.role = role;
+  netNote(role === 'host' ? 'Opening a room...' : 'Joining ' + code + '...');
+  ws.onmessage = ev => netMsg(String(ev.data));
+  ws.onclose = () => {
+    if (NET.ws !== ws) return;
+    const inRun = NET.client && S && S.mode !== 'title';
+    netReset();
+    netNote(inRun ? 'Lost the room. Back on your own.' : 'Left the room.');
+    if (inRun) toTitle();
+    netUI();
+  };
+  ws.onerror = () => { if (NET.ws === ws && !NET.on) netNote("Couldn't reach the room server. Try again in a moment."); };
+}
+function netHostClick() {
+  audioInit();
+  const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let c = ''; for (let i = 0; i < 5; i++) c += A[Math.floor(Math.random() * A.length)];
+  netConnect('host', c);
+}
+function netJoinClick() {
+  audioInit();
+  const c = $('netCode').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (c.length < 4) { netNote('Type the 5-letter room code from the host.'); $('netCode').focus(); return; }
+  netConnect('join', c);
+}
+function netRosterAll() { const L = lookOf(); return [{ id: 0, name: netName(), cat: L.cat, fit: L.fit }].concat(NET.roster); }
+function netUI() {
+  const inRoom = NET.on;
+  $('netIdle').hidden = inRoom; $('netRoom').hidden = !inRoom;
+  $('netCodeShow').textContent = NET.code;
+  const list = NET.host ? netRosterAll() : NET.roster;
+  $('netRoster').innerHTML = '';
+  for (const r of list) {
+    const li = document.createElement('li'), b = document.createElement('b'), s = document.createElement('span');
+    b.textContent = r.name; s.textContent = ' · ' + ((CATS[r.cat] || CATS.yellow).name) + (r.id === 0 ? ' · host' : '') + (NET.client && r.id === NET.id ? ' · you' : '');
+    li.append(b, s); $('netRoster').append(li);
+  }
+  $('startBtn').disabled = NET.client; $('dailyBtn').disabled = NET.client;
+  $('startBtn').textContent = NET.client ? 'Host starts' : NET.host && NET.roster.length ? 'Play together' : 'Play';
+}
+function netMsg(txt) {
+  let from = -1;
+  if (NET.role === 'host' && /^\d/.test(txt)) { const c = txt.indexOf(':'); from = +txt.slice(0, c); txt = txt.slice(c + 1); }
+  let m; try { m = JSON.parse(txt); } catch (e) { return; }
+  if (from >= 0) { if (NET.host && S) hostInput(from, m); return; }
+  if (m.t === 'welcome') {
+    NET.on = true; NET.id = m.id; NET.host = NET.role === 'host'; NET.client = !NET.host; NET.roster = [];
+    netNote(NET.host ? 'Room open. Send your friends the code, then hit Play.' : "You're in. The host starts the run.");
+    if (NET.client && S && S.mode !== 'title') toTitle();
+    netUI();
+  } else if (m.t === 'error') {
+    const ws = NET.ws; netReset(); try { ws && ws.close(); } catch (e) {}
+    netNote(m.msg); netUI();
+  } else if (m.t === 'end') {
+    const inRun = S && S.mode !== 'title';
+    const ws = NET.ws; netReset(); try { ws && ws.close(); } catch (e) {}
+    if (inRun) toTitle();
+    netNote('The host left, so the room closed.'); netUI();
+  } else if (NET.host) {
+    if (m.t === 'join') hostJoin(m); else if (m.t === 'leave') hostLeave(m.id);
+  } else if (NET.client) {
+    if (m.t === 'roster') { NET.roster = m.r; netUI(); }
+    else if (m.t === 'start') clientStart(m);
+    else if (m.t === 's') { if (S && S.mode !== 'title') clientSnap(m); }
+    else if (m.t === 'hurt') clientHurt(m);
+    else if (m.t === 'got') clientGot(m);
+    else if (m.t === 'lobby') { if (S && S.mode !== 'title') { NET.fromHost = true; toTitle(); NET.fromHost = false; } netUI(); }
+  }
+}
+
+/* host side */
+function newMate(r) {
+  const p = S.p;
+  return { id: r.id, name: r.name, cat: r.cat, fit: r.fit, x: p.x, y: p.y, rx: p.x, ry: p.y, vx: 0, vy: 0, r: 13, lives: p.lives, inv: 2, aim: -0.4, walk: 0,
+    flash: 0, recoil: 0, dashT: 0, ddx: 1, ddy: 0, frenzy: 0, spread: 0, lean: 0, jam: 1, dead: false, picks: p.picks, hitIds: [], kbT: 0,
+    ammo: 17, reloadT: 0, reloadMax: 1, fireCD: 0, dashCD: 0, gun: p.gun, cash: 0 };
+}
+const inRun = () => S && S.mode !== 'title' && S.mode !== 'over';
+function hostStartMate(m, i) {
+  const a = (i + 1) * 2.1;
+  m.x = m.rx = clamp(S.p.x + Math.cos(a) * 60, 60, WORLD.w - 60); m.y = m.ry = clamp(S.p.y + Math.sin(a) * 30, 120, WORLD.h - 60);
+  NET.to(m.id, { t: 'start', x: m.x, y: m.y, diff: S.diff, daily: S.daily, picks: S.p.picks, gun: S.p.gun, lives: m.lives });
+}
+function hostBeginRun() {
+  S.mates = NET.roster.map(newMate);
+  S.mates.forEach(hostStartMate);
+  NET.sendT = 0;
+}
+function hostJoin(m) {
+  if (NET.roster.some(r => r.id === m.id)) return;
+  const r = { id: m.id, name: !m.name || m.name === 'Player' ? 'Player ' + (m.id + 1) : m.name.slice(0, 12), cat: CATS[m.cat] ? m.cat : 'yellow', fit: m.fit in FITS ? m.fit : 'og' };
+  NET.roster.push(r);
+  if (inRun()) { const mt = newMate(r); S.mates.push(mt); hostStartMate(mt, S.mates.length - 1); floatText(S.p.x, S.p.y - 100, r.name + ' joined', C.kitty, 16); }
+  NET.send('*' + JSON.stringify({ t: 'roster', r: netRosterAll() }));
+  netUI();
+}
+function hostLeave(id) {
+  const r = NET.roster.find(o => o.id === id);
+  NET.roster = NET.roster.filter(o => o.id !== id);
+  if (S) { S.mates = S.mates.filter(o => o.id !== id); if (r && inRun()) floatText(S.p.x, S.p.y - 100, r.name + ' left', C.dim, 15); }
+  NET.send('*' + JSON.stringify({ t: 'roster', r: netRosterAll() }));
+  netUI();
+}
+function hostInput(id, m) {
+  const o = S.mates.find(q => q.id === id);
+  if (!o || m.t !== 'p') return;
+  o.inAt = performance.now();
+  o.rx = +m.x || 0; o.ry = +m.y || 0; o.vx = +m.vx || 0; o.vy = +m.vy || 0; o.aim = +m.a || 0; o.walk = +m.w || 0;
+  o.reloadT = +m.ld || 0; o.reloadMax = +m.lm || 1;
+  if (m.fl) o.flash = 0.05;
+  if (m.rc) o.recoil = 1;
+  const dt = +m.dt || 0;
+  if (dt > o.dashT + 0.05) o.hitIds = [];
+  o.dashT = dt; o.ddx = +m.dx || 0; o.ddy = +m.dy || 0;
+  if (S.mode !== 'play' || S.ride || o.dead) return;
+  const maxDmg = ST.dmg * 1.01 + 0.01;
+  for (const b of Array.isArray(m.b) ? m.b.slice(0, 24) : []) {
+    S.bullets.push({ x: +b[0], y: +b[1], vx: +b[2], vy: +b[3], dmg: Math.min(+b[4] || 0, maxDmg), life: Math.min(+b[5] || 0, 3), pierce: Math.min(+b[6] || 0, 8), bounce: Math.min(+b[7] || 0, 8), hit: [], h: 30, o: id });
+  }
+  if (m.jam) withP(o, useJammer);
+}
+function hostMates(dt) {
+  const k = 1 - Math.exp(-16 * dt);
+  for (const o of S.mates) {
+    if (performance.now() - (o.inAt || 0) < 250) { o.rx += o.vx * dt; o.ry += o.vy * dt; }
+    o.x += (o.rx - o.x) * k; o.y += (o.ry - o.y) * k;
+    o.inv = Math.max(0, o.inv - dt); o.flash = Math.max(0, o.flash - dt); o.recoil = Math.max(0, o.recoil - dt * 8);
+    o.dashT = Math.max(0, o.dashT - dt); o.frenzy = Math.max(0, o.frenzy - dt); o.spread = Math.max(0, o.spread - dt); o.lean = Math.max(0, o.lean - dt);
+    if (o.reloadT > 0) o.reloadT = Math.max(0, o.reloadT - dt);
+  }
+}
+function hostSend(real) {
+  if (!S || S.mode === 'title' || !S.mates.length) return;
+  NET.sendT -= real;
+  if (NET.sendT > 0) return;
+  NET.sendT = S.mode === 'play' ? 1 / 15 : 0.25;
+  const me = S.p, L = lookOf();
+  const pl = o => ({ i: o === me ? 0 : o.id, n: o === me ? netName() : o.name, c: o === me ? L.cat : o.cat, f: o === me ? L.fit : o.fit, x: o.x, y: o.y, vx: o.vx, vy: o.vy, a: o.aim, w: o.walk,
+    fl: o.flash, rc: o.recoil, dt: o.dashT, l: o.lives, iv: o.inv, d: o.dead ? 1 : 0, j: o.jam, ln: o.lean, ld: o.reloadT, lm: o.reloadMax });
+  const msg = { t: 's', m: S.mode, rt: S.runT, w: S.wave, ws: S.waveState, sc: S.score, k: S.kills, cb: S.combo, ct: S.comboT, bn: S.banner, cine: S.cine, fin: S.finale, ride: S.ride,
+    cash: me.cash, picks: me.picks, gun: me.gun, diff: S.diff, daily: S.daily, P: [me].concat(S.mates).map(pl), E: S.enemies,
+    B: S.bullets.map(b => [b.x, b.y, b.vx, b.vy, b.o || 0, b.life, b.h]), SH: S.shots, PK: S.pickups, SP: S.spawns, ev: NET.ev };
+  NET.ev = [];
+  NET.send('*' + JSON.stringify(msg, rnd2));
+}
+
+/* player side */
+function clientStart(m) {
+  resetRun();
+  S.diff = m.diff || 'normal'; S.daily = m.daily || null;
+  const p = S.p;
+  p.x = m.x; p.y = m.y; p.picks = m.picks || {}; p.gun = m.gun || 'glock'; p.lives = m.lives || 9;
+  calcStats(); p.ammo = ST.mag;
+  NET.lastWave = 0; NET.hostMode = 'play'; NET.rb = []; NET.outB = []; NET.rideP = null;
+  curBest = best;
+  updCam(0, true);
+  showFor('play');
+}
+function smooth(o, x, y) { if (o.bx == null) { o.x = o.bx = x; o.y = o.by = y; o.ox = o.oy = 0; return; } o.ox = o.x - x; o.oy = o.y - y; o.bx = x; o.by = y; }
+function clientSnap(m) {
+  NET.snapAt = performance.now();
+  const p = S.p;
+  S.wave = m.w; S.waveState = m.ws; S.score = m.sc; S.kills = m.k; S.combo = m.cb; S.comboT = m.ct; S.diff = m.diff; S.daily = m.daily;
+  S.banner = m.bn; S.cine = m.cine; S.finale = m.fin; S.runT = m.rt || 0;
+  if (JSON.stringify(p.picks) !== JSON.stringify(m.picks) || p.gun !== m.gun) { p.picks = m.picks || {}; p.gun = m.gun; calcStats(); }
+  p.cash = m.cash;
+  const mine = m.P.find(o => o.i === NET.id);
+  if (mine) {
+    p.lives = mine.l; p.jam = mine.j;
+    if (p.dead && !mine.d) { p.dead = false; p.inv = Math.max(p.inv, 1.5); }
+    else if (!p.dead && mine.d) p.dead = true;
+  }
+  if (m.w !== NET.lastWave) { NET.lastWave = m.w; p.ammo = ST.mag; p.reloadT = 0; }
+  const hostP = m.P.find(o => o.i === 0);
+  if (m.ride) {
+    S.ride = m.ride;
+    NET.rideP = Object.assign(NET.rideP || {}, { x: hostP.x, y: hostP.y, vx: 0, vy: 0, aim: hostP.a, walk: hostP.w, flash: hostP.fl, recoil: hostP.rc, inv: hostP.iv, dead: !!hostP.d, lives: hostP.l,
+      jam: hostP.j, cat: hostP.c, fit: hostP.f, picks: p.picks, cash: m.cash, ammo: ST.mag, reloadT: 0, reloadMax: 1, frenzy: 0, spread: 0, lean: 0, dashCD: 0, dashT: 0, r: 13, mates: [] });
+  } else if (S.ride) {
+    // the ride is over: everyone lands back on the block next to the host
+    S.ride = null; NET.rideP = null;
+    p.x = clamp(hostP.x + (NET.id % 2 ? 1 : -1) * (40 + 25 * NET.id), 60, WORLD.w - 60); p.y = hostP.y; p.vx = p.vy = 0; p.inv = 1;
+    updCam(0, true);
+  }
+  const old = new Map(S.mates.map(o => [o.id, o]));
+  S.mates = m.P.filter(o => o.i !== NET.id).map(o => {
+    const q = old.get(o.i) || { id: o.i, r: 13, picks: p.picks };
+    smooth(q, o.x, o.y);
+    Object.assign(q, { name: o.n, cat: o.c, fit: o.f, vx: o.vx, vy: o.vy, aim: o.a, walk: o.w, flash: o.fl, recoil: o.rc, dashT: o.dt, lives: o.l, inv: o.iv, dead: !!o.d,
+      lean: o.ln, reloadT: o.ld, reloadMax: o.lm || 1, picks: p.picks });
+    return q;
+  });
+  const oldE = new Map(S.enemies.map(e => [e.id, e]));
+  S.enemies = m.E.map(o => { const e = oldE.get(o.id); if (!e) { smooth(o, o.x, o.y); return o; } const x = e.x, y = e.y, bx = e.bx; Object.assign(e, o); e.x = x; e.y = y; e.bx = bx; smooth(e, o.x, o.y); return e; });
+  S.shots = m.SH; S.pickups = m.PK; S.spawns = m.SP;
+  NET.rb = m.B.filter(b => b[4] !== NET.id).map(b => ({ x: b[0], y: b[1], vx: b[2], vy: b[3], life: b[5], h: b[6] }));
+  for (const [k, a] of m.ev || []) {
+    if (k === 'b') burst(...a); else if (k === 'st') stars(...a); else if (k === 'r') ring(...a); else if (k === 'f') floatText(...a); else if (k === 's' && SFX[a[0]]) SFX[a[0]]();
+  }
+  NET.hostMode = m.m;
+  if (m.m === 'over' && S.mode !== 'over') {
+    S.mode = 'over'; S.boardIdx = -1; S.checkpoint = null; S.newBest = false; S.killer = '';
+    showFor('over');
+  }
+}
+function clientHurt(m) {
+  const p = S.p;
+  p.lives = m.l; p.inv = m.iv; p.vx = m.vx; p.vy = m.vy; p.kbT = 0.22;
+  shake(12); FX.hurt = 1;
+  if (m.d) p.dead = true;
+}
+function clientGot(m) {
+  const p = S.p;
+  if (m.k === 'catnip') { p.frenzy = 6; p.reloadT = 0; p.ammo = ST.mag; }
+  else if (m.k === 'lean') p.lean = LEAN_T;
+  else if (m.k === 'yarn') p.spread = 8;
+  SFX.pickup();
+}
+function clientStep(dt, real) {
+  S.t += dt;
+  const p = S.p, live = performance.now() - NET.snapAt < 300;
+  if (S.ride) {
+    // riding along: the host drives, everyone else watches the road
+    const r = S.ride;
+    if (live) r.y += r.spd * dt * (r.boost > 0 ? 1.6 : 1);
+    if (NET.rideP) { NET.rideP.x = r.x; NET.rideP.y = -r.y; }
+    if (S.banner) { S.banner.t -= dt; if (S.banner.t <= 0) S.banner = null; }
+    return;
+  }
+  const inp = readInput();
+  const frozen = NET.hostMode !== 'play' || S.cine || (S.finale && !S.finale.boomed);
+  if (frozen) { inp.mx = inp.my = 0; inp.fire = inp.dash = inp.jam = false; }
+  updatePlayer(dt, inp);
+  wantDash = wantReload = wantJam = false;
+  updateBullets(dt);
+  for (let i = NET.rb.length - 1; i >= 0; i--) {
+    const b = NET.rb[i];
+    b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.h = Math.max(15, (b.h || 15) - dt * 260);
+    if (b.life <= 0 || solidAt(b.x, b.y)) NET.rb.splice(i, 1);
+  }
+  const k = Math.exp(-12 * dt), ext = live && !frozen ? dt : 0;
+  for (const e of S.enemies) {
+    e.bx += e.vx * ext; e.by += e.vy * ext; e.ox *= k; e.oy *= k; e.x = e.bx + e.ox; e.y = e.by + e.oy;
+    e.anim += dt; e.flash = Math.max(0, e.flash - dt); e.squish = Math.max(0, e.squish - dt);
+  }
+  for (const o of S.mates) {
+    o.bx += o.vx * ext; o.by += o.vy * ext; o.ox *= k; o.oy *= k; o.x = o.bx + o.ox; o.y = o.by + o.oy;
+    if (Math.hypot(o.vx, o.vy) > 40) o.walk += dt;
+    o.flash = Math.max(0, o.flash - dt); o.recoil = Math.max(0, o.recoil - dt * 8); o.inv = Math.max(0, o.inv - dt);
+  }
+  for (const s of S.shots) { s.life -= dt; if (s.k === 'wave') s.r += (s.vr || 0) * dt; else if (live) { s.x += s.vx * dt; s.y += s.vy * dt; } }
+  for (const s of S.spawns) s.t = Math.max(0, s.t - dt);
+  if (S.cine) S.cine.t += real;
+  if (S.banner) { S.banner.t -= dt; if (S.banner.t <= 0) S.banner = null; }
+  if (S.comboT > 0) S.comboT = Math.max(0, S.comboT - dt);
+  // 20 times a second: where this cat is, and the rounds it fired since the last time
+  NET.inT -= real;
+  if (NET.inT <= 0) {
+    NET.inT = 0.05;
+    const o = { t: 'p', x: p.x, y: p.y, vx: p.vx, vy: p.vy, a: p.aim, w: p.walk, dt: p.dashT, dx: p.ddx, dy: p.ddy, ld: p.reloadT, lm: p.reloadMax };
+    if (p.flash > 0) o.fl = 1;
+    if (p.recoil > 0.5) o.rc = 1;
+    if (NET.outB.length) { o.b = NET.outB; NET.outB = []; }
+    if (NET.wantJam) { o.jam = 1; NET.wantJam = false; }
+    NET.send(JSON.stringify(o, rnd2));
+  }
+}
+function netWaitLine() {
+  let t = '';
+  if (NET.on && S && S.mode === 'play' && !S.ride) {
+    const hostName = (S.mates.find(o => o.id === 0) || {}).name || 'The host';
+    if (NET.client && NET.hostMode === 'upgrade') t = hostName + ' is in the shop. Upgrades are shared.';
+    else if (S.p.dead && !(NET.host && allDead())) t = "You're down. You're back next wave with 3 lives.";
+  }
+  if (t !== NET.waitTxt) { NET.waitTxt = t; $('netWait').textContent = t; $('netWait').hidden = !t; }
+}
+function drawTag(m) {
+  const col = { yellow: C.brass, white: '#dff3ff', fight: C.kitty, rohni: '#ff6b6b' }[m.cat] || C.ink;
+  ctx.textAlign = 'center'; ctx.font = '12px ' + FD;
+  ctx.lineWidth = 3; ctx.strokeStyle = C.night; ctx.strokeText(m.name || '', m.x, m.y - 96);
+  ctx.fillStyle = m.dead ? C.dim : col; ctx.fillText(m.name || '', m.x, m.y - 96);
+}
+$('netName').value = store.get('gk.name', '') || '';
+$('netName').addEventListener('change', e => store.set('gk.name', e.target.value.replace(/[^\w .'-]/g, '').slice(0, 12)));
+$('netHost').addEventListener('click', netHostClick);
+$('netJoin').addEventListener('click', netJoinClick);
+$('netLeave').addEventListener('click', () => { netLeave(); netNote(''); });
+
 /* ---------- loop ---------- */
 let last = performance.now();
 function loop(now) {
@@ -4240,7 +4657,11 @@ function loop(now) {
   TEL.frame(real);
   let fxDt = 0;
   FX.flash = Math.max(0, FX.flash - real * 3);
-  if (S.mode === 'play' && S.cine) {
+  if (NET.client && S.mode === 'play') {
+    const dt = Math.min(1 / 30, real);
+    clientStep(dt, real);
+    fxDt = dt;
+  } else if (S.mode === 'play' && S.cine) {
     updCine(real);
     fxDt = real;
   } else if (S.mode === 'play' && S.finale && !S.finale.boomed) {
@@ -4255,7 +4676,7 @@ function loop(now) {
     fxDt = dt;
     S.runT += real;
     if (CHALLENGE && !S.beat && S.score > CHALLENGE.score) { S.beat = true; floatText(S.p.x, S.p.y - 100, 'Beat ' + CHALLENGE.by + '!', C.brass, 26); SFX.fanfare(); TEL.track('challenge_beat', { target: CHALLENGE.score, wave: S.wave }); }
-    if (S.p.dead && S.mode === 'play') { S.deathT -= real; if (S.deathT <= 0) gameOver(); }
+    if (S.mode === 'play' && allDead()) { S.deathT -= real; if (S.deathT <= 0) gameOver(); }
   } else if (S.mode === 'title') {
     S.t += real;
     S.p.aim = Math.sin(S.t * 0.5) * 2.4;
@@ -4267,8 +4688,10 @@ function loop(now) {
   }
   updFX(fxDt);
   if ((S.mode === 'play' || S.mode === 'title') && !(S.ride && S.ride.kind === 'bike')) updRain(real);
+  if (NET.host) hostSend(real);
+  netWaitLine();
   updCam(real, false);
-  render();
+  if (NET.client && S.ride && NET.rideP) withP(NET.rideP, render); else render();
   updateTouchUI();
   requestAnimationFrame(loop);
 }
