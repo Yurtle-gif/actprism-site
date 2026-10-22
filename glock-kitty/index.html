@@ -1636,6 +1636,8 @@ function startReload() {
   p.reloadT = p.reloadMax;
   SFX.magOut();
 }
+// rounds drop from muzzle height to the height they hit at (15) within about a seventh of a second
+const settleOf = h => Math.max(260, (h - 15) / 0.14);
 function tryFire(moving) {
   const p = S.p;
   if (p.reloadT > 0 || p.fireCD > 0) return;
@@ -1653,12 +1655,14 @@ function tryFire(moving) {
       // buckshot pellets ride along at 60% damage, fanned a little around the main round
       for (let j = 0; j <= ST.pellets; j++) {
         const a = base + (j ? (j % 2 ? 1 : -1) * G.spread * Math.ceil(j / 2) : 0) + rand(-1, 1) * (0.03 + (G.kick || 0) + (moving ? 0.025 : 0));
-        S.bullets.push({ x: p.x + Math.cos(p.aim) * 24 + px * g * 8, y: p.y + Math.sin(p.aim) * 24 + py * g * 8,
-          vx: Math.cos(a) * G.speed, vy: Math.sin(a) * G.speed, life: G.life, dmg: ST.dmg * (j ? (G.pellets ? 0.85 : 0.6) : 1), pierce: ST.pierce, bounce: ST.ricochet, hit: [], h: 30 });
+        const mz = p.mz || {}, fresh = q => q && S.t - q.t < 0.3 ? q : null, m = fresh(mz[g]) || fresh(mz[0]), at = { x: p.x + Math.cos(p.aim) * 24 + px * g * 8, y: p.y + Math.sin(p.aim) * 24 + py * g * 8, h: 30 };
+        if (m) { at.x = p.x + m.dx; at.y = Math.max(at.y, p.y + m.dy + 15); at.h = at.y - p.y - m.dy; }
+        S.bullets.push({ x: at.x, y: at.y,
+          vx: Math.cos(a) * G.speed, vy: Math.sin(a) * G.speed, life: G.life, dmg: ST.dmg * (j ? (G.pellets ? 0.85 : 0.6) : 1), pierce: ST.pierce, bounce: ST.ricochet, hit: [], h: at.h, hs: settleOf(at.h) });
       }
     }
   }
-  if (NET.client) for (let i = n0; i < S.bullets.length; i++) { const b = S.bullets[i]; NET.outB.push([b.x, b.y, b.vx, b.vy, b.dmg, b.life, b.pierce, b.bounce]); }
+  if (NET.client) for (let i = n0; i < S.bullets.length; i++) { const b = S.bullets[i]; NET.outB.push([b.x, b.y, b.vx, b.vy, b.dmg, b.life, b.pierce, b.bounce, b.h]); }
   p.flash = 0.05; p.recoil = 1;
   shake(2.2);
   ejectCasing();
@@ -2129,7 +2133,7 @@ function updateBullets(dt) {
     b.life -= dt;
     let dead = b.life <= 0;
     // rounds leave the muzzle at hand height, then settle to the height they hit at
-    b.h = Math.max(15, (b.h || 15) - dt * 260);
+    b.h = Math.max(15, (b.h || 15) - dt * (b.hs || 260));
     const steps = Math.max(1, Math.ceil(Math.hypot(b.vx, b.vy) * dt / 12));
     const sdt = dt / steps;
     for (let s = 0; s < steps && !dead; s++) {
@@ -2374,7 +2378,7 @@ function stepRide(dt) {
   for (let i = S.bullets.length - 1; i >= 0; i--) {
     const b = S.bullets[i];
     b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt;
-    b.h = Math.max(15, (b.h || 15) - dt * 260);
+    b.h = Math.max(15, (b.h || 15) - dt * (b.hs || 260));
     let dead = b.life <= 0;
     for (const c of r.cams) {
       if (dead || c.dead || b.hit.includes(c.id)) continue;
@@ -2482,17 +2486,52 @@ function drawRideObstacle(o, bike) {
     ctx.fillStyle = '#2a2230'; ctx.fillRect(x - 16, y + 2, 32, 4);
   }
 }
+// dirtbike riders with the gun-side hand off the bars: per sprite and side, the arm's inner edge as [row, col]
+// (everything outside it, from the hand down to the shoulder, is lifted out), the bar to paint back under the
+// missing hand [from x, y, to x, y, width] and its colour, and the shoulder the gun arm grows from
+const ONEARM = {"ride_bike":{"w":155,"h":240,"L":{"c":[[67,59],[69,61],[71,61],[73,58],[75,54],[77,56],[79,59],[81,58],[83,57],[85,56],[87,56],[89,56],[91,56],[93,56],[95,57],[97,57],[99,57],[100,58]],"b":[54,77.0,42.7,77.5,5],"bc":"#6d696e","s":[42.5,101]},"R":{"c":[[67,100],[69,95],[71,95],[73,99],[75,99],[77,99],[79,97],[81,98],[83,99],[85,99],[87,100],[89,100],[91,100],[93,99],[95,99],[97,99],[99,98],[100,98]],"b":[101,76.2,112.6,76.8,5],"bc":"#6b575f","s":[113.5,101]}},"ride_bike_f":{"w":112,"h":240,"L":{"c":[[50,36],[52,36],[54,37],[56,36],[58,37],[60,37],[62,37],[64,39],[66,39],[68,39],[70,39],[72,37],[74,37],[76,37],[78,37],[80,37],[82,34],[84,37],[86,37],[87,37]],"b":[35,55.5,23.0,56.2,4],"bc":"#322e2d","s":[9.5,88]},"R":{"c":[[48,75],[50,75],[52,74],[54,75],[56,75],[58,74],[60,74],[62,73],[64,72],[66,72],[68,72],[70,72],[72,74],[74,74],[76,74],[78,74],[80,74],[82,77],[84,77],[86,74],[87,74]],"b":[76,58.2,91.9,59.1,4],"bc":"#1b1b16","s":[101.0,88]}},"ride_bike_fb":{"w":107,"h":240,"L":{"c":[[54,35],[56,36],[58,31],[60,29],[62,31],[64,36],[66,37],[68,37],[70,31],[72,31],[74,31],[76,31],[78,31],[80,31],[82,31],[84,31],[86,31],[88,31],[90,32],[91,31]],"b":[29,60.3,18.2,60.7,3],"bc":"#c09b5a","s":[9.0,92]},"R":{"c":[[53,72],[55,75],[57,73],[59,72],[61,75],[63,75],[65,69],[67,69],[69,69],[71,75],[73,75],[75,75],[77,75],[79,75],[81,75],[83,75],[85,75],[87,74],[89,74],[91,75]],"b":[77,58.8,87.2,59.6,5],"bc":"#665945","s":[97.0,92]}},"ride_bike_fc":{"w":100,"h":240,"L":{"c":[[49,31],[51,31],[53,32],[55,32],[57,26],[59,33],[61,34],[63,33],[65,33],[67,29],[69,29],[71,29],[73,29],[75,29],[77,29],[79,30],[81,30],[83,31],[85,31]],"b":[27,57.0,15.5,57.8,4],"bc":"#1f2121","s":[8.5,86]},"R":{"c":[[49,68],[51,65],[53,67],[55,66],[57,69],[59,67],[61,67],[63,66],[65,69],[67,69],[69,70],[71,70],[73,70],[75,69],[77,69],[79,69],[81,68],[83,68],[85,68]],"b":[71,58.0,83.2,58.5,3],"bc":"#3b3b3b","s":[90.0,86]}},"ride_bike_fy":{"w":103,"h":240,"L":{"c":[[61,33],[63,35],[65,31],[67,32],[69,37],[71,37],[73,30],[75,30],[77,31],[79,31],[81,31],[83,31],[85,32],[87,32],[89,32],[91,33],[93,32],[95,31],[97,32],[99,33],[101,33],[102,32]],"b":[30,66.0,19.1,67.0,4],"bc":"#705e61","s":[9.5,103]},"R":{"c":[[58,70],[60,67],[62,68],[64,67],[66,70],[68,66],[70,65],[72,65],[74,72],[76,71],[78,71],[80,71],[82,71],[84,70],[86,70],[88,70],[90,70],[92,69],[94,69],[96,70],[98,68],[100,68],[102,70]],"b":[72,66.2,82.8,66.9,4],"bc":"#766468","s":[92.5,103]}},"ride_bike_mb":{"w":105,"h":240,"L":{"c":[[64,33],[66,34],[68,30],[70,28],[72,31],[74,35],[76,42],[78,29],[80,29],[82,29],[84,29],[86,29],[88,29],[90,29],[92,30],[94,30],[96,31],[98,31],[100,32],[102,32],[104,28],[106,31]],"b":[29,71.5,17.0,72.4,4],"bc":"#302f27","s":[10.0,107]},"R":{"c":[[62,71],[64,71],[66,71],[68,74],[70,76],[72,74],[74,75],[76,61],[78,75],[80,75],[82,75],[84,75],[86,75],[88,75],[90,74],[92,74],[94,74],[96,73],[98,73],[100,72],[102,72],[104,75],[106,74],[107,74]],"b":[76,72.0,87.5,72.5,3],"bc":"#403c39","s":[92.5,108]}},"ride_bike_mc":{"w":109,"h":240,"L":{"c":[[49,36],[51,32],[53,36],[55,34],[57,32],[59,36],[61,35],[63,38],[65,38],[67,38],[69,32],[71,32],[73,32],[75,32],[77,32],[79,32],[81,32],[83,33],[85,33],[87,32]],"b":[30,52.0,20.5,53.1,3],"bc":"#355759","s":[9.5,88]},"R":{"c":[[48,71],[50,73],[52,73],[54,72],[56,76],[58,76],[60,72],[62,71],[64,70],[66,69],[68,76],[70,76],[72,76],[74,76],[76,76],[78,76],[80,76],[82,75],[84,75],[86,76]],"b":[78,53.0,86.6,53.7,5],"bc":"#13464e","s":[98.5,87]}},"ride_bike_my":{"w":104,"h":240,"L":{"c":[[58,34],[60,35],[62,35],[64,32],[66,35],[68,36],[70,41],[72,40],[74,30],[76,30],[78,30],[80,30],[82,30],[84,30],[86,30],[88,31],[90,31],[92,31],[94,32],[96,32],[98,33]],"b":[30,65.0,16.9,65.6,3],"bc":"#afa7a3","s":[10.5,99]},"R":{"c":[[56,68],[58,69],[60,68],[62,68],[64,68],[66,68],[68,67],[70,62],[72,63],[74,66],[76,68],[78,68],[80,68],[82,68],[84,68],[86,68],[88,68],[90,68],[92,68],[94,71],[96,71],[98,70]],"b":[70,64.2,84.5,64.8,5],"bc":"#928a90","s":[94.0,99]}},"ride_bike_r":{"w":118,"h":240,"L":{"c":[[51,39],[53,33],[55,35],[57,42],[59,43],[61,43],[63,43],[65,35],[67,35],[69,35],[71,36],[73,35],[75,34],[77,32],[79,35],[81,35],[82,32]],"b":[33,56.0,22.8,56.7,5],"bc":"#23241f","s":[15.5,83]},"R":{"c":[[48,78],[50,78],[52,77],[54,81],[56,75],[58,74],[60,74],[62,74],[64,74],[66,82],[68,82],[70,82],[72,81],[74,83],[76,83],[78,82],[80,82],[82,82],[83,81]],"b":[83,53.5,93.2,54.7,5],"bc":"#393031","s":[101.5,84]}},"ride_bike_rb":{"w":102,"h":240,"L":{"c":[[61,31],[63,31],[65,30],[67,29],[69,30],[71,30],[73,29],[75,29],[77,29],[79,30],[81,30],[83,30],[85,29],[87,27],[89,29],[91,29],[93,29],[95,29],[97,29],[99,29],[101,29],[102,29]],"b":[27,67.5,14.6,68.3,3],"bc":"#bd9e5f","s":[11.0,103]},"R":{"c":[[60,70],[62,69],[64,70],[66,71],[68,71],[70,71],[72,71],[74,71],[76,71],[78,71],[80,71],[82,72],[84,71],[86,71],[87,71]],"b":[73,65.3,84.2,66.3,5],"bc":"#554127","s":[93.5,88]}},"ride_bike_rc":{"w":109,"h":240,"L":{"c":[[49,33],[51,32],[53,35],[55,33],[57,32],[59,34],[61,35],[63,35],[65,33],[67,33],[69,32],[71,32],[73,32],[75,32],[77,33],[79,31],[81,32],[83,33],[85,32],[87,31],[89,29]],"b":[30,52.5,17.2,53.3,4],"bc":"#282929","s":[12.0,90]},"R":{"c":[[48,73],[50,75],[52,73],[54,74],[56,76],[58,76],[60,73],[62,73],[64,72],[66,75],[68,76],[70,76],[72,76],[74,79],[76,77],[78,76],[80,77],[82,76],[84,75],[86,76],[88,77],[89,77]],"b":[78,55.5,92.5,56.3,5],"bc":"#242726","s":[96.5,90]}},"ride_bike_ry":{"w":108,"h":240,"L":{"c":[[59,33],[61,34],[63,32],[65,30],[67,40],[69,41],[71,41],[73,27],[75,27],[77,27],[79,28],[81,28],[83,28],[85,29],[87,27],[89,30],[91,30],[93,30],[95,28]],"b":[28,65.0,18.6,65.8,5],"bc":"#797a75","s":[14.5,96]},"R":{"c":[[57,73],[59,77],[61,73],[63,75],[65,74],[67,67],[69,67],[71,67],[73,74],[75,74],[77,74],[79,74],[81,74],[83,74],[85,74],[87,74],[89,74],[91,77],[93,77],[94,74]],"b":[76,64.8,87.8,65.5,5],"bc":"#70676a","s":[92.0,95]}}};
+const ONEARM_C = {};
+function oneArmImg(key, im, side) {
+  const ck = key + side;
+  if (ONEARM_C[ck]) return ONEARM_C[ck];
+  const D = ONEARM[key], d = D[side];
+  const c = document.createElement('canvas');
+  c.width = im.naturalWidth; c.height = im.naturalHeight;
+  const g = c.getContext('2d');
+  g.drawImage(im, 0, 0);
+  g.scale(c.width / D.w, c.height / D.h);
+  const L = side === 'L', ex = L ? 0 : D.w, last = d.c[d.c.length - 1][0] + 1;
+  g.globalCompositeOperation = 'destination-out';
+  g.beginPath(); g.moveTo(ex, d.c[0][0]);
+  for (const [y, x] of d.c) g.lineTo(L ? x + 1 : x, y);
+  g.lineTo(L ? d.c[d.c.length - 1][1] + 1 : d.c[d.c.length - 1][1], last); g.lineTo(ex, last);
+  g.closePath(); g.fill();
+  g.globalCompositeOperation = 'source-over';
+  const [xb, yb, hx, hy, tb] = d.b, bx = hx + (hx - xb) * 0.12, by = hy + (hy - yb) * 0.12;
+  g.lineCap = 'round';
+  g.strokeStyle = d.bc; g.lineWidth = tb; g.beginPath(); g.moveTo(xb, yb); g.lineTo(bx, by); g.stroke();
+  g.strokeStyle = '#16141a'; g.lineWidth = tb * 1.15; g.beginPath(); g.moveTo(xb + (bx - xb) * 0.6, yb + (by - yb) * 0.6); g.lineTo(bx, by); g.stroke();
+  return (ONEARM_C[ck] = c);
+}
 function drawVehicle(r) {
   const p = S.p, bike = r.kind === 'bike', x = r.x, y = -r.y;
+  MZ_INV = ctx.getTransform().invertSelf(); GUN_P = p; GUN_G = 0;
+  let shoulder = null;
   if (p.inv > 0 && !p.dead && Math.floor(p.inv * 16) % 2 === 0) ctx.globalAlpha = 0.4;
   ctx.save(); ctx.translate(x, y);
   if (bike) {
     ell(2, 8, 20, 32, C.shadow);
     ctx.rotate(r.lean * 0.3);
-    const bk = carImg(catSpr('ride_bike', p));
+    const bkey = catSpr('ride_bike', p), bk = carImg(bkey);
     if (bk) {
       const dh = 86, dw = dh * bk.naturalWidth / bk.naturalHeight;
-      ctx.drawImage(bk, -dw / 2, -dh / 2, dw, dh);
+      // the gun hand lets go of the bars, so draw the rider with that arm lifted out
+      const side = Math.cos(p.aim) < 0 ? 'L' : 'R', D = !p.dead && carImg(catSpr('hero_arm', p)) && ONEARM[bkey];
+      ctx.drawImage(D ? oneArmImg(bkey, bk, side) : bk, -dw / 2, -dh / 2, dw, dh);
+      if (D) {
+        const k = dh / D.h, s = D[side].s, a = r.lean * 0.3, sx = (s[0] - D.w / 2) * k, sy = (s[1] - D.h / 2) * k;
+        shoulder = [x + sx * Math.cos(a) - sy * Math.sin(a), y + sx * Math.sin(a) + sy * Math.cos(a)];
+      }
       if (r.boost > 0) { ctx.globalAlpha *= 0.8; ell(10, 46, 4, 9, C.brass); ell(10, 48, 2.5, 6, '#fff7e0'); }
     } else {
     ell(0, -28, 6.5, 14, '#07070b'); ell(0, 28, 7, 14, '#07070b');
@@ -2550,7 +2589,8 @@ function drawVehicle(r) {
     }
   }
   ctx.restore();
-  if (!p.dead && !(HERO_ON && drawHeroArm(x + Math.cos(p.aim) * 5, y - (bike ? 6 : 2) + Math.sin(p.aim) * 4, p.aim, 20, p.recoil, p.flash, false)))
+  if (shoulder) drawHeroArm(shoulder[0], shoulder[1], p.aim, 22, p.recoil, p.flash, false, false, p);
+  else if (!p.dead && !(HERO_ON && drawHeroArm(x + Math.cos(p.aim) * 5, y - (bike ? 6 : 2) + Math.sin(p.aim) * 4, p.aim, 20, p.recoil, p.flash, false, false, p)))
     drawGlock(x + Math.cos(p.aim) * 9, y - (bike ? 6 : 2) + Math.sin(p.aim) * 6, p.aim, p.recoil, p.flash);
   ctx.globalAlpha = 1;
   if (p.dead) {
@@ -3287,11 +3327,17 @@ function drawGlock(x, y, ang, recoil, flash) {
   if (flash > 0) {
     star4(mz, -2.2, 9, C.brass); star4(mz, -2.2, 5, '#fff7e0');
   }
+  if (GUN_P && MZ_INV && S) {
+    const m = MZ_INV.transformPoint(ctx.getTransform().transformPoint(new DOMPoint(mz, -2.2)));
+    (GUN_P.mz || (GUN_P.mz = {}))[GUN_G] = { dx: m.x - GUN_P.x, dy: m.y - GUN_P.y, t: S.t };
+  }
   ctx.restore();
 }
 let HERO_ON = false;
 const HERO_ARM = { skin: '#c88d6c', dark: '#a46a4e' };
 let GUN_K = 1, ARM_GRIP = false;
+// where each gun's muzzle was last drawn: MZ_INV turns canvas pixels back into world space, GUN_G says which hand
+let MZ_INV = null, GUN_G = 0;
 // painted arms: shoulder pivot (px, py), fist centre (fx, fy), fist crop starts at f0
 const ARMS = {
   hero_arm: { px: 10, py: 30.5, fx: 236, fy: 40, f0: 205, w: 260, h: 65 },
@@ -3348,7 +3394,7 @@ function heroFrame(p, moving) {
 }
 let GUN_P = null;
 function drawGuns(p, bob, face) {
-  GUN_P = p;
+  GUN_P = p; GUN_G = 0;
   const hy = HERO_ON ? 22 : 0;
   const sx = p.x + face * PSZ, sy = p.y - (36 + hy + bob) * PSZ;
   const px = p.x + face * 4 * PSZ, py = p.y - (31 + hy + bob) * PSZ;
@@ -3364,7 +3410,7 @@ function drawGuns(p, bob, face) {
       const gx = nx + fx * 31, gy = ny + fy * 31;
       drawHeroArm(bx, by, Math.atan2(gy - by, gx - bx), Math.hypot(gx - bx, gy - by), p.recoil, 0, true, true, p);
       drawHeroArm(nx, ny, p.aim, 30, p.recoil, p.flash, false, false, p);
-    } else for (const g of guns) drawHeroArm(shx - fy * 4 * g, shy + fx * 3 * g, p.aim, 30, p.recoil, p.flash, g < 0, false, p);
+    } else for (const g of guns) { GUN_G = g; drawHeroArm(shx - fy * 4 * g, shy + fx * 3 * g, p.aim, 30, p.recoil, p.flash, g < 0, false, p); }
     return;
   }
   for (const g of guns) {
@@ -3377,6 +3423,7 @@ function drawGuns(p, bob, face) {
       line(sx - fy * 0.9 * PSZ, sy + fx * 0.9 * PSZ - PSZ, ex - fy * 0.9 * PSZ, ey + fx * 0.9 * PSZ - PSZ, 'rgba(255,214,190,.38)', 1.1 * PSZ);
       line(sx + (ex - sx) * 0.25, sy + (ey - sy) * 0.25, sx + (ex - sx) * 0.7, sy + (ey - sy) * 0.7, 'rgba(40,40,60,.32)', 1.5 * PSZ);
     } else line(sx, sy, ex, ey, g < 0 ? C.skinDark : C.skin, 4.6 * PSZ);
+    GUN_G = g;
     drawGlock(px + ox, py + oy - (g < 0 ? 2 : 0), p.aim, p.recoil, p.flash);
   }
 }
@@ -3391,6 +3438,7 @@ function drawPlayer(p) {
   const ox = p.x - OW / 2, oy = p.y - 130;
   PCX.setTransform(1, 0, 0, 1, 0, 0); PCX.clearRect(0, 0, PCV.width, PCV.height);
   PCX.setTransform(OS, 0, 0, OS, -ox * OS, -oy * OS);
+  MZ_INV = PCX.getTransform().invertSelf();
   ctx = PCX;
   const up = Math.sin(p.aim) < -0.35;
   const him = heroFrame(p, moving);
@@ -4539,7 +4587,7 @@ function hostInput(id, m) {
   if (S.mode !== 'play' || S.ride || o.dead) return;
   const maxDmg = ST.dmg * 1.01 + 0.01;
   for (const b of Array.isArray(m.b) ? m.b.slice(0, 24) : []) {
-    S.bullets.push({ x: +b[0], y: +b[1], vx: +b[2], vy: +b[3], dmg: Math.min(+b[4] || 0, maxDmg), life: Math.min(+b[5] || 0, 3), pierce: Math.min(+b[6] || 0, 8), bounce: Math.min(+b[7] || 0, 8), hit: [], h: 30, o: id });
+    S.bullets.push({ x: +b[0], y: +b[1], vx: +b[2], vy: +b[3], dmg: Math.min(+b[4] || 0, maxDmg), life: Math.min(+b[5] || 0, 3), pierce: Math.min(+b[6] || 0, 8), bounce: Math.min(+b[7] || 0, 8), hit: [], h: clamp(+b[8] || 30, 15, 160), hs: settleOf(clamp(+b[8] || 30, 15, 160)), o: id });
   }
   if (m.jam) withP(o, useJammer);
 }
