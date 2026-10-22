@@ -9,6 +9,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 import heroUrl from './assets/models/hero.glb.gz?url';
 import snowUrl from './assets/models/snow.glb.gz?url';
+import rohniUrl from './assets/models/rohni.glb.gz?url';
 import lamboGreenUrl from './assets/models/lambo_green.glb.gz?url';
 import lamboOrangeUrl from './assets/models/lambo_orange.glb.gz?url';
 import gwagonUrl from './assets/models/gwagon.glb.gz?url';
@@ -35,7 +36,7 @@ import billboardUrl from './assets/tex/billboard.webp?url';
 import skylineUrl from './assets/tex/skyline.webp?url';
 
 const MODEL_URLS = {
-  hero: heroUrl, snow: snowUrl,
+  hero: heroUrl, snow: snowUrl, rohni: rohniUrl,
   lambo_green: lamboGreenUrl, lambo_orange: lamboOrangeUrl, gwagon: gwagonUrl, cruiser: cruiserUrl,
   roller: rollerUrl, tower: towerUrl,
   palm: palmUrl, tree: treeUrl, lamp: lampUrl, cone: coneUrl, barrier: barrierUrl, hydrant: hydrantUrl,

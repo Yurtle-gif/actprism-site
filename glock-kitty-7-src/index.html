@@ -189,6 +189,14 @@
   @keyframes pulse { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.06);} }
   .gk-keys { margin-top: 30px; font-size: 14px; color: #c7d2dc; line-height: 2; }
   .gk-keys b { color: #ffc23d; background: rgba(255,255,255,0.08); padding: 1px 7px; border-radius: 4px; }
+  /* short screens (phones sideways): keep the title, button and both pickers on screen */
+  @media (max-height: 520px) {
+    .gk-title { font-size: clamp(36px, 8vw, 64px); letter-spacing: 2px; }
+    .gk-sub { font-size: 14px; letter-spacing: 4px; }
+    .gk-start-btn { margin-top: 14px; }
+    .gk-keys { margin-top: 10px; line-height: 1.6; }
+    .gk-quality { margin-top: 8px; }
+  }
   .gk-victory { font-size: clamp(36px, 9vw, 76px); color: #ffc23d; text-shadow: 0 0 26px #ffb21f, 0 6px 0 #b24bff; }
   .gk-defeat { font-size: clamp(36px, 9vw, 70px); color: #ff5b6e; text-shadow: 0 0 26px #ff2a55; }
   .gk-stat { margin-top: 14px; font-size: 18px; color: #e6eef5; }
