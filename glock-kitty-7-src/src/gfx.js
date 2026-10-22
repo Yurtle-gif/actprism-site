@@ -12,10 +12,27 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 export const LOW_MEM = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
   (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) || (navigator.deviceMemory || 8) <= 4;
 
+// Graphics quality: 'perf' (phones), 'hd' (default desktop), 'ultra' (4K: renders at
+// least 2160 lines even on a 1080p screen, 4096 shadows, full-res bloom, no auto downscale).
+const QKEY = 'gk7-quality';
+export const QUALITY = (() => {
+  let q = null;
+  try { q = localStorage.getItem(QKEY); } catch (e) { /* storage blocked */ }
+  return q === 'perf' || q === 'hd' || q === 'ultra' ? q : (LOW_MEM ? 'perf' : 'hd');
+})();
+export const QUALITY_LABEL = { perf: 'PERFORMANCE', hd: 'HD', ultra: '4K ULTRA' };
+export function setQuality(q) { try { localStorage.setItem(QKEY, q); } catch (e) { /* ignore */ } }
+export function qualityPixelRatio() {
+  const dpr = window.devicePixelRatio || 1;
+  if (QUALITY === 'perf') return Math.min(dpr, 1.25);
+  if (QUALITY === 'hd') return Math.min(dpr, 2);
+  return Math.min(3, Math.max(dpr, 2160 / Math.max(1, window.innerHeight)));
+}
+
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   // phones and tablets run out of GPU memory at full retina res with bloom on top
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, LOW_MEM ? 1.25 : 2));
+  renderer.setPixelRatio(qualityPixelRatio());
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
@@ -73,12 +90,19 @@ const SpeedLineShader = {
 // Pushes the image toward Fortnite's clean saturated look without blowing out
 // skin or neon that is already saturated.
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uVibrance: { value: 0.32 }, uContrast: { value: 1.08 }, uVignette: { value: 0.22 } },
+  uniforms: { tDiffuse: { value: null }, uVibrance: { value: 0.32 }, uContrast: { value: 1.08 }, uVignette: { value: 0.22 },
+    uSharpen: { value: 0 }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uVibrance, uContrast, uVignette; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uVibrance, uContrast, uVignette, uSharpen; uniform vec2 uTexel; varying vec2 vUv;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
+      if (uSharpen > 0.0) {
+        // unsharp mask against the 4 neighbours: crisper edges and texture detail
+        vec3 n = texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb
+               + texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
+        c.rgb = max(c.rgb + (c.rgb - n * 0.25) * uSharpen, 0.0);
+      }
       float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
       float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
       c.rgb = mix(vec3(l), c.rgb, 1.0 + uVibrance * (1.0 - (mx - mn)));
@@ -93,7 +117,7 @@ export function createComposer(renderer, scene, camera) {
   // the composer's render targets skip the canvas MSAA, so give them their own
   // samples; otherwise every edge in the game is jagged
   const pr = renderer.getPixelRatio();
-  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: LOW_MEM ? 2 : 4 });
+  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: QUALITY === 'perf' ? 2 : 4 });
   const composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.65, 0.4, 0.85);
@@ -103,6 +127,7 @@ export function createComposer(renderer, scene, camera) {
   composer.addPass(speedPass);
   composer.addPass(new OutputPass());
   const grade = new ShaderPass(GradeShader);
+  grade.uniforms.uSharpen.value = QUALITY === 'ultra' ? 0.45 : QUALITY === 'hd' ? 0.25 : 0;
   composer.addPass(grade);
   return {
     composer, bloom, speedPass, grade,
@@ -110,7 +135,9 @@ export function createComposer(renderer, scene, camera) {
       composer.setSize(w, h);
       // bloom is a soft glow: half resolution looks the same and costs a quarter
       const pr = renderer.getPixelRatio();
-      bloom.setSize(Math.round(w * pr * 0.5), Math.round(h * pr * 0.5));
+      const bs = QUALITY === 'ultra' ? 0.75 : 0.5;
+      bloom.setSize(Math.round(w * pr * bs), Math.round(h * pr * bs));
+      grade.uniforms.uTexel.value.set(1 / (w * pr), 1 / (h * pr));
       speedPass.uniforms.uAspect.value = w / h;
     },
   };
@@ -313,7 +340,7 @@ export function setupEnvironment(renderer, scene) {
   const sun = new THREE.DirectionalLight(0xffe2f4, 2.0);
   sun.position.set(60, 120, 40);
   sun.castShadow = true;
-  sun.shadow.mapSize.setScalar(LOW_MEM ? 1024 : 2048);
+  sun.shadow.mapSize.setScalar(QUALITY === 'ultra' ? 4096 : QUALITY === 'perf' ? 1024 : 2048);
   // the sun follows the player, so a tight frustum keeps shadows crisp
   const d = 55;
   sun.shadow.camera.left = -d; sun.shadow.camera.right = d;

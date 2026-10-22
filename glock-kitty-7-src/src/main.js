@@ -1,7 +1,7 @@
 // main.js — Glock Kitty 7 : Neo-Tokyo 85 battle royale. Engine + all gameplay.
 import * as THREE from 'three';
 import {
-  createRenderer, createComposer, setupEnvironment, makeStylized,
+  createRenderer, createComposer, QUALITY, QUALITY_LABEL, setQuality, setupEnvironment, makeStylized,
   makeCamoTexture, makeAsphaltTexture, makeDenimTexture, makeStormMaterial,
 } from './gfx.js';
 import {
@@ -1917,7 +1917,8 @@ function adaptResolution(rawDt) {
   if (resT < 1) return;
   resT = 0;
   let next = resScale;
-  if (frameEma > 22 && resScale > 0.55) next = Math.max(0.55, resScale - 0.15);
+  const floor = QUALITY === 'ultra' ? 1 : 0.55; // 4K Ultra never trades sharpness for frames
+  if (frameEma > 22 && resScale > floor) next = Math.max(floor, resScale - 0.15);
   else if (frameEma < 14 && resScale < 1) next = Math.min(1, resScale + 0.1);
   if (next === resScale) return;
   resScale = next;
@@ -1989,6 +1990,20 @@ function setupInput(canvas) {
   });
 }
 
+// start screen: PERFORMANCE / HD / 4K ULTRA (saved, applied on reload)
+function addQualityToggle() {
+  const scr = document.querySelector('.gk-screen'); if (!scr) return;
+  const q = document.createElement('div'); q.className = 'gk-quality';
+  const order = ['perf', 'hd', 'ultra'];
+  q.innerHTML = 'GRAPHICS ' + order.map((k) => `<span data-q="${k}" class="${k === QUALITY ? 'on' : ''}">${QUALITY_LABEL[k]}</span>`).join('');
+  q.addEventListener('click', (e) => {
+    const k = e.target.dataset && e.target.dataset.q;
+    if (!k || k === QUALITY) return;
+    e.stopPropagation(); setQuality(k); location.reload();
+  });
+  scr.appendChild(q);
+}
+
 function handleKey(code) {
   switch (code) {
     case 'KeyV': if (player.onGround) { player.skating = !player.skating; } break;
@@ -2058,6 +2073,13 @@ async function init() {
 
   buildWorld();
   snapshotStatic();
+  if (QUALITY !== 'perf') {
+    const an = Math.min(QUALITY === 'ultra' ? 16 : 8, renderer.capabilities.getMaxAnisotropy());
+    scene.traverse((o) => {
+      const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+      for (const m of ms) for (const k of ['map', 'normalMap', 'emissiveMap']) if (m[k] && m[k].anisotropy < an) { m[k].anisotropy = an; m[k].needsUpdate = true; }
+    });
+  }
 
   hud = new HUD(document.getElementById('overlay'));
   hurtEl = document.getElementById('hurt');
@@ -2073,6 +2095,7 @@ async function init() {
 
   const btn = hud.showScreen('start');
   if (btn) btn.onclick = () => { audio.resume(); startMatch(); lockPointer(); };
+  addQualityToggle();
 
   animate();
 }
