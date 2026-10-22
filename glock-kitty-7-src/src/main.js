@@ -1959,6 +1959,8 @@ function adaptResolution(rawDt) {
   // instead of see-sawing between two sizes every second.
   let next = resScale;
   const floor = QP.floor; // 4K Ultra never trades sharpness for frames
+  // a slow machine gives up ambient occlusion first (for the rest of the session), then resolution
+  if (frameEma > 24 && comp.ao && comp.ao.enabled) { comp.ao.enabled = false; frameEma = 18; goodT = 0; return; }
   if (frameEma > 24 && resScale > floor) { next = Math.max(floor, resScale - 0.15); holdT = 8 + raises * 8; goodT = 0; }
   else if (goodT > 4 && holdT <= 0 && resScale < 1 && raises < 3) { next = Math.min(1, resScale + 0.1); raises++; goodT = 0; }
   if (next === resScale) return;

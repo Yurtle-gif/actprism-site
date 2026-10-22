@@ -1,13 +1,15 @@
 // gfx.js — rendering pipeline: ACES tone mapping, soft shadows, UnrealBloom,
 // a speed-line / chromatic-aberration post pass, a Fresnel rim-light stylized
 // material, procedural camo/asphalt/denim textures, a GLSL storm-wall shader,
-// and a procedural neon environment (PMREM). No SSAO pass (dropped for stability).
+// and a procedural neon environment (PMREM). Desktop HD/ULTRA add half-res GTAO
+// ambient occlusion (contact shadows in corners and under objects); phones skip it.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 
 export const LOW_MEM = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
   (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) || (navigator.deviceMemory || 8) <= 4;
@@ -18,9 +20,9 @@ export const LOW_MEM = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAge
 const QKEY = 'gk7-quality';
 const PRESETS = {
   desktop: {
-    perf:  { pr: (d) => Math.min(d, 1.25), msaa: 2, shadow: 1024, bloom: 0.5, sharpen: 0.2, aniso: 4, floor: 0.55 },
-    hd:    { pr: (d) => Math.min(d, 2), msaa: 4, shadow: 2048, bloom: 0.5, sharpen: 0.25, aniso: 8, floor: 0.55 },
-    ultra: { pr: (d) => Math.min(3, Math.max(d, 2160 / Math.max(1, window.innerHeight))), msaa: 4, shadow: 4096, bloom: 0.75, sharpen: 0.45, aniso: 16, floor: 1 },
+    perf:  { pr: (d) => Math.min(d, 1.25), msaa: 2, shadow: 1024, bloom: 0.5, sharpen: 0.2, aniso: 4, floor: 0.55, ao: 0 },
+    hd:    { pr: (d) => Math.min(d, 2), msaa: 4, shadow: 2048, bloom: 0.5, sharpen: 0.25, aniso: 8, floor: 0.55, ao: 0.5 },
+    ultra: { pr: (d) => Math.min(3, Math.max(d, 2160 / Math.max(1, window.innerHeight))), msaa: 4, shadow: 4096, bloom: 0.75, sharpen: 0.45, aniso: 16, floor: 1, ao: 0.5 },
   },
   phone: {
     perf:  { pr: (d) => Math.min(d, 1.25), msaa: 2, shadow: 1024, bloom: 0.4, sharpen: 0.35, aniso: 4, floor: 0.6 },
@@ -106,6 +108,22 @@ const SpeedLineShader = {
 // --- Final color grade (display space): vibrance, contrast, soft vignette ---
 // Pushes the image toward Fortnite's clean saturated look without blowing out
 // skin or neon that is already saturated.
+// --- Ambient occlusion: three's GTAO at a fraction of the render size ---------
+// Only solid meshes write the depth/normal buffer: particles, flashes, glass, the
+// storm wall and the ink outline hulls would otherwise cast dark halos.
+class LiteGTAOPass extends GTAOPass {
+  constructor(scene, camera, w, h, scale) { super(scene, camera, Math.round(w * scale), Math.round(h * scale)); this.aoScale = scale; }
+  setSize(w, h) { super.setSize(Math.max(1, Math.round(w * this.aoScale)), Math.max(1, Math.round(h * this.aoScale))); }
+  overrideVisibility() {
+    const cache = this._visibilityCache;
+    this.scene.traverse((o) => {
+      cache.set(o, o.visible);
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (o.isPoints || o.isLine || o.isSprite || o.userData.outline || (m && (m.transparent || m.blending === THREE.AdditiveBlending))) o.visible = false;
+    });
+  }
+}
+
 const GradeShader = {
   uniforms: { tDiffuse: { value: null }, uVibrance: { value: 0.32 }, uContrast: { value: 1.08 }, uVignette: { value: 0.22 },
     uSharpen: { value: 0 }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) } },
@@ -137,6 +155,15 @@ export function createComposer(renderer, scene, camera) {
   const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: QP.msaa });
   const composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
+  let ao = null;
+  if (QP.ao) {
+    // radius/thickness in metres: a 1.85 m character, 3-4 m doorways
+    ao = new LiteGTAOPass(scene, camera, size.x * pr, size.y * pr, QP.ao);
+    ao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.2, thickness: 2.5, distanceFallOff: 1, scale: 1.3, samples: 12 });
+    ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+    ao.blendIntensity = 1;
+    composer.addPass(ao);
+  }
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.65, 0.4, 0.85);
   composer.addPass(bloom);
   const speedPass = new ShaderPass(SpeedLineShader);
@@ -147,7 +174,7 @@ export function createComposer(renderer, scene, camera) {
   grade.uniforms.uSharpen.value = QP.sharpen;
   composer.addPass(grade);
   return {
-    composer, bloom, speedPass, grade,
+    composer, bloom, speedPass, grade, ao,
     setSize(w, h) {
       composer.setSize(w, h);
       // bloom is a soft glow: half resolution looks the same and costs a quarter
