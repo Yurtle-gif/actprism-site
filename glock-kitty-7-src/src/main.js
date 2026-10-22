@@ -10,6 +10,8 @@ import {
 import { AudioSynth } from './audio.js';
 import { loadArt, hasModel, makeProp, makeCharacter, setAnim, aimArms, tiledBox, ART } from './models.js';
 import { HUD } from './hud.js';
+import { addTrauma, hitStop, kickFov, feelTick, fovOffset, applyShake, resetFeel } from './feel.js';
+import { createFx, emit as emitFx, fxTick, clearFx, fxMuzzle, fxSparks, fxBlood, fxDust, fxCasing } from './fx.js';
 
 // ---------------------------------------------------------------- utilities
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -116,21 +118,16 @@ function spawnTracer(from, to, color) {
   addFx(m, 0.09, (o, t) => { o.material.opacity = 0.9 * t; });
 }
 
-function spawnSpark(point, color = 0xffd27a) {
-  for (let i = 0; i < 5; i++) {
-    const g = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    g.position.copy(point);
-    const vel = new THREE.Vector3(rand(-1, 1), rand(0.5, 2), rand(-1, 1)).multiplyScalar(3);
-    addFx(g, 0.35, (o, t, dt) => { o.position.addScaledVector(vel, dt); vel.y -= 9 * dt; o.material.opacity = t; o.scale.setScalar(t); });
-  }
+function spawnSpark(point, color = 0xffd27a, normal = null, n = 6) {
+  fxSparks(point, n, color, normal || UP);
 }
 
 function spawnExplosion(point, color = 0xff5fd0) {
   const ring = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 12), new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   ring.position.copy(point);
   addFx(ring, 0.5, (o, t) => { const s = lerp(4, 0.5, t); o.scale.setScalar(s); o.material.opacity = t * 0.8; });
-  spawnSpark(point, color);
-  spawnSpark(point, 0xffffff);
+  spawnSpark(point, color, UP, 14);
+  spawnSpark(point, 0xffffff, UP, 8);
 }
 
 // ------------------------------------------------------------------- world build
@@ -142,6 +139,7 @@ function buildWorld() {
   botGroup = new THREE.Group(); scene.add(botGroup);
   lootGroup = new THREE.Group(); scene.add(lootGroup);
   fxGroup = new THREE.Group(); scene.add(fxGroup);
+  createFx(scene);
 
   // ground island
   const asphalt = makeAsphaltTexture(512); asphalt.repeat.set(40, 40);
@@ -756,6 +754,7 @@ function createPlayer() {
   const p = {
     group: kitty.group, parts: kitty.parts, char: real ? real.char : null,
     meleeT: 0, emote: false, airT: 0,
+    recoilPitch: 0, recoilYaw: 0, jumpBuf: 0, coyote: 0, fireBuf: 0, sprintT: 0,
     pos: new THREE.Vector3(POIS[1].x, 100, POIS[1].z),
     vel: new THREE.Vector3(),
     radius: 0.5, height: 1.9,
@@ -826,9 +825,17 @@ function updatePlayer(dt) {
     p.vel.x -= p.vel.x * fr; p.vel.z -= p.vel.z * fr;
   }
 
-  // gravity
+  // jump: buffered presses + coyote time so edge-of-frame presses still count
+  p.jumpBuf = Math.max(0, p.jumpBuf - dt);
+  p.coyote = p.onGround && !p.freefall ? 0.1 : Math.max(0, p.coyote - dt);
+  if (p.jumpBuf > 0 && p.coyote > 0) {
+    p.vel.y = 10; p.onGround = false; p.jumpBuf = 0; p.coyote = 0; p.jumping = true; audio.jump();
+  }
+
+  // gravity (a released jump falls sooner, so taps hop and holds fly)
   const g = p.freefall ? 9 : CONFIG.gravity;
   p.vel.y -= g * dt;
+  if (p.jumping && p.vel.y > 0 && !keys['Space']) p.vel.y -= CONFIG.gravity * 0.6 * dt;
   if (p.freefall) p.vel.y = Math.max(p.vel.y, -16);
 
   // integrate
@@ -843,12 +850,23 @@ function updatePlayer(dt) {
   if (p.pos.y <= gh + 0.001) {
     p.pos.y = gh;
     if (p.vel.y < 0) p.vel.y = 0;
-    if (!p.onGround && p.freefall) { p.freefall = false; p.glider.visible = false; }
-    p.onGround = true;
+    if (!p.onGround) {
+      const impact = p.lastVy || 0;
+      if (p.freefall) { p.freefall = false; p.glider.visible = false; addTrauma(0.35); fxDust(V.set(p.pos.x, p.pos.y + 0.1, p.pos.z), 28); }
+      else if (impact < -9) { addTrauma(Math.min(0.3, -impact * 0.012)); fxDust(V.set(p.pos.x, p.pos.y + 0.1, p.pos.z), 12); }
+    }
+    p.onGround = true; p.jumping = false;
   } else {
     p.onGround = false;
   }
   if (p.slideT > 0) p.slideT -= dt;
+  p.lastVy = p.vel.y;
+
+  // recoil climbs while firing and settles back toward where you aimed
+  const rk = 1 - Math.exp(-dt * (fireDown ? 4 : 11));
+  p.recoilPitch -= p.recoilPitch * rk; p.recoilYaw -= p.recoilYaw * rk;
+  const sprinting = p.sprint && speedNow(p) > 7 && p.onGround && !adsDown;
+  p.sprintT = lerp(p.sprintT, sprinting ? 1 : 0, 1 - Math.exp(-8 * dt));
 
   // ---- mesh transform + animation ----
   p.group.position.copy(p.pos);
@@ -908,6 +926,8 @@ function updatePlayer(dt) {
   }
 }
 
+function speedNow(p) { return Math.hypot(p.vel.x, p.vel.z); }
+
 function pointSegDist(px, pz, x1, z1, x2, z2) {
   const dx = x2 - x1, dz = z2 - z1;
   const l2 = dx * dx + dz * dz || 1;
@@ -934,7 +954,8 @@ function updateCamera(dt) {
   // the rigged model is a full-height person: pull back and drop the arm so head-to-sneakers stays in frame
   const tall = !!p.char;
   const right = lerp(tall ? 0.85 : 0.9, tall ? 0.7 : 0.62, adsT), up = lerp(tall ? 0.95 : 1.6, tall ? 0.72 : 1.55, adsT), back = lerp(tall ? 4.4 : 3.6, tall ? 2.6 : 2.5, adsT);
-  camera.fov = p.cam.fov; camera.updateProjectionMatrix();
+  const fov = p.cam.fov + p.sprintT * 7 * (1 - adsT) + fovOffset();
+  if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 
   const focus = V.copy(p.pos); focus.y += p.char ? 1.45 : 1.5;
   const fwd = getForward(V2);
@@ -952,15 +973,24 @@ function updateCamera(dt) {
   p.camDist = p.camDist == null ? want : (want < p.camDist ? want : p.camDist + (want - p.camDist) * (1 - Math.exp(-6 * dt)));
   camPos = focus.clone().addScaledVector(dir, Math.min(p.camDist, len));
   camera.position.copy(camPos);
-  camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ');
+  camera.rotation.set(p.pitch + p.recoilPitch, p.yaw + p.recoilYaw, 0, 'YXZ');
+  applyShake(camera);
 }
 
 function getForward(out) {
-  const e = new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ');
+  const e = new THREE.Euler(player.pitch + player.recoilPitch, player.yaw + player.recoilYaw, 0, 'YXZ');
   return out.set(0, 0, -1).applyEuler(e);
 }
 
 // ------------------------------------------------------------------- combat
+// per-weapon feel: recoil (radians), screen trauma, FOV punch (degrees)
+const FEEL = {
+  blaster: { recoil: 0.012, shake: 0.07, fov: -1.0 },
+  smg: { recoil: 0.007, shake: 0.045, fov: -0.5 },
+  shotgun: { recoil: 0.05, shake: 0.28, fov: -3.0 },
+  sniper: { recoil: 0.07, shake: 0.36, fov: -4.0 },
+};
+
 function tryFire() {
   const p = player, item = activeItem();
   if (!item) return;
@@ -976,8 +1006,9 @@ function tryFire() {
   if (p.reloadT > 0 || p.healT > 0) return;
   if (item.ammoInMag <= 0) { startReload(); return; }
   const ready = now - p.lastFire >= 1 / item.fireRate;
-  const want = item.auto ? fireDown : fireEdge;
-  if (want && ready) { p.lastFire = now; fireGun(item); }
+  if (fireEdge) p.fireBuf = 0.12; // a click during cooldown fires on the first free frame
+  const want = item.auto ? fireDown : p.fireBuf > 0;
+  if (want && ready) { p.lastFire = now; p.fireBuf = 0; fireGun(item); }
 }
 
 function fireGun(item) {
@@ -985,14 +1016,21 @@ function fireGun(item) {
   item.ammoInMag--;
   audio.gun(item.typeId);
   p.parts.flash.material.opacity = 1; p.parts.flash.scale.setScalar(rand(0.8, 1.4));
-  // recoil kick
-  p.pitch += rand(0.004, 0.012); p.recentFire = 0.12;
+  // recoil kick (recovers in updatePlayer) + per-weapon shake and FOV punch
+  const kick = FEEL[item.typeId] || FEEL.blaster;
+  p.recoilPitch += rand(kick.recoil * 0.6, kick.recoil) * (adsDown ? 0.6 : 1);
+  p.recoilYaw += rand(-1, 1) * kick.recoil * 0.3;
+  p.recentFire = 0.12;
+  addTrauma(kick.shake); kickFov(kick.fov);
   const origin = camera.position.clone();
   const baseDir = getForward(new THREE.Vector3());
   const bloom = adsDown ? item.adsBloom : item.bloom;
   let muzzle;
   if (p.char) { p.parts.gun.updateMatrixWorld(true); muzzle = p.parts.gun.localToWorld(new THREE.Vector3(0, 0.03, 0.75)); }
   else muzzle = p.group.localToWorld(new THREE.Vector3(0.55, 1.25, 1.0));
+  fxMuzzle(muzzle, baseDir);
+  const camRight = V2.crossVectors(baseDir, UP).normalize();
+  fxCasing(muzzle, camRight.clone().add(UP));
   for (let pel = 0; pel < item.pellets; pel++) {
     const dir = baseDir.clone();
     dir.x += rand(-bloom, bloom); dir.y += rand(-bloom, bloom); dir.z += rand(-bloom, bloom);
@@ -1007,12 +1045,14 @@ function fireGun(item) {
       if (bot && bot.alive && !bot.companion) {
         const crit = h.point.y > bot.pos.y + 1.55;
         const dmg = item.dmg * (crit ? item.headMult : 1);
-        damageBot(bot, dmg, h.point, crit);
+        fxBlood(h.point, dir.clone().negate());
+        damageBot(bot, dmg, h.point, crit, dir);
       } else if (bot && bot.companion) {
         spawnSpark(h.point, 0x5fe0ff);
       } else {
         const bp = findProp(h.object);
-        spawnSpark(h.point, 0xffd27a);
+        const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : dir.clone().negate();
+        spawnSpark(h.point, 0xffd27a, n);
         if (bp) { /* guns chip props lightly */ bp.userData.prop.hp -= item.dmg * 0.4; if (bp.userData.prop.hp <= 0) breakProp(bp); }
         else damageBuild(h.object, item.dmg);
       }
@@ -1070,7 +1110,7 @@ function gainMats(n) { player.mats = Math.min(CONFIG.maxMats, player.mats + n); 
 function findBot(obj) { let o = obj; while (o) { if (o.userData && o.userData.botRef) return o.userData.botRef; o = o.parent; } return null; }
 function findProp(obj) { let o = obj; while (o) { if (o.userData && o.userData.prop) return o; o = o.parent; } return null; }
 
-function damageBot(bot, dmg, point, crit) {
+function damageBot(bot, dmg, point, crit, dir) {
   let remain = dmg, kind;
   if (bot.shield > 0) {
     const s = Math.min(bot.shield, remain); bot.shield -= s; remain -= s; kind = 'shield';
@@ -1081,14 +1121,31 @@ function damageBot(bot, dmg, point, crit) {
   hud.showHitmarker(crit);
   const sp = worldToScreen(point);
   if (sp.visible) hud.damageNumber(sp.x, sp.y, dmg, kind);
-  if (bot.hp <= 0) killBot(bot, true);
+  addTrauma(crit ? 0.08 : 0.04);
+  if (crit) hitStop(0.035);
+  if (bot.hp <= 0) killBot(bot, true, dir);
 }
 
-function killBot(bot, byPlayer) {
+function killBot(bot, byPlayer, dir) {
   if (!bot.alive) return;
   bot.alive = false;
   spawnExplosion(bot.pos.clone().setY(bot.pos.y + 1), bot.companion ? 0x5fe0ff : 0xff3b3b);
+  // knocked back along the shot, topples over, then goes
   botGroup.remove(bot.group);
+  const g = bot.group;
+  const knock = (dir ? dir.clone() : V.copy(bot.pos).sub(player.pos)).setY(0);
+  if (knock.lengthSq() < 1e-6) knock.set(0, 0, 1);
+  knock.normalize().multiplyScalar(7);
+  const fall = new THREE.Vector3(knock.z, 0, -knock.x).normalize(); // topple away from the shooter
+  const q0 = g.quaternion.clone(), q = new THREE.Quaternion();
+  addFx(g, 0.75, (o, t, dt) => {
+    const k = 1 - t;
+    o.position.addScaledVector(knock, dt); knock.multiplyScalar(Math.exp(-dt * 6));
+    q.setFromAxisAngle(fall, -Math.min(1, k / 0.4) * Math.PI / 2);
+    o.quaternion.copy(q).multiply(q0);
+    if (t < 0.25) o.scale.setScalar(Math.max(0.01, t / 0.25));
+  });
+  if (byPlayer && !bot.companion) { hitStop(0.06); addTrauma(0.22); kickFov(2.5); }
   if (byPlayer && !bot.companion) {
     player.kills++;
     audio.elim();
@@ -1127,6 +1184,7 @@ function damagePlayer(amt) {
   let remain = amt;
   if (p.shield > 0) { const s = Math.min(p.shield, remain); p.shield -= s; remain -= s; }
   if (remain > 0) p.hp -= remain;
+  addTrauma(Math.min(0.5, amt / 60));
   flashHurt();
   if (p.hp <= 0) { p.hp = 0; loseMatch(); }
 }
@@ -1641,6 +1699,7 @@ function startMatch() {
   if (storm) { scene.remove(storm.mesh); }
   if (player) scene.remove(player.group);
   player = createPlayer();
+  resetFeel(); clearFx();
   build = new BuildSystem();
   storm = new Storm();
   spawnChests();
@@ -1833,8 +1892,9 @@ function adaptResolution(rawDt) {
 function animate() {
   requestAnimationFrame(animate);
   const raw = clock.getDelta();
-  const dt = Math.min(raw, 0.05);
+  const dt = feelTick(Math.min(raw, 0.05));
   update(dt);
+  fxTick(dt);
   if (running) cullFar(dt);
   if (comp) { adaptResolution(Math.min(raw, 0.25)); comp.composer.render(); }
   else renderer.render(scene, camera);
@@ -1870,7 +1930,7 @@ function setupInput(canvas) {
     switch (e.code) {
       case 'KeyV': if (player.onGround) { player.skating = !player.skating; } break;
       case 'KeyC': if (player.onGround && player.slideT <= 0) { player.slideT = 0.6; const f = getForward(new THREE.Vector3()); f.y = 0; f.normalize(); player.vel.x += f.x * 6; player.vel.z += f.z * 6; } break;
-      case 'Space': if (player.onGround && !player.freefall) { player.vel.y = 10; player.onGround = false; audio.jump(); } break;
+      case 'Space': player.jumpBuf = 0.12; break;
       case 'KeyQ': build.select('wall'); break;
       case 'KeyE': if (player._nearChest) player._nearChest.open(); else build.select('ramp'); break;
       case 'KeyR': build.select('floor'); break;
@@ -1975,8 +2035,9 @@ if (import.meta.env.VITE_GK_TEST) {
     get chests() { return chests; }, get camera() { return camera; }, get scene() { return scene; },
     get running() { return running; }, get matchOver() { return matchOver; }, get locked() { return locked; },
     get buildGroup() { return buildGroup; }, get botGroup() { return botGroup; }, get lootGroup() { return lootGroup; },
-    startMatch, winMatch, killBot, damageBot, aliveRivals, CONFIG, keys, update, getForward,
+    startMatch, winMatch, killBot, damageBot, aliveRivals, CONFIG, keys, getForward,
     ART, hasModel, makeProp, vehicles, cullFar, get renderer() { return renderer; }, get comp() { return comp; }, get propsGroup() { return propsGroup; }, get worldGroup() { return worldGroup; }, get hitWorld() { return hitWorld; },
+    update: (dt) => { dt = feelTick(dt); update(dt); fxTick(dt); }, damagePlayer, emitFx,
     setAds(v) { adsDown = v; }, setFire(v) { fireDown = v; fireEdge = v; }, setLocked(v) { locked = v; },
   };
 }
