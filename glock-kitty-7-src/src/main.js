@@ -641,19 +641,22 @@ function buildKitty(opts = {}) {
 }
 
 function buildGunMesh(color) {
+  // stylized rifle: receiver, stock, grip, mag, long barrel, top rail and a thin
+  // colored accent stripe (kept dim so bloom doesn't turn it into a white block)
   const grp = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.6),
-    new THREE.MeshStandardMaterial({ color: 0x15121c, metalness: 0.7, roughness: 0.4 }));
-  grp.add(body);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 8),
-    new THREE.MeshStandardMaterial({ color: 0x0c0a12, metalness: 0.8, roughness: 0.3 }));
-  barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.03, 0.45); grp.add(barrel);
-  const accent = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.3),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.4 }));
-  accent.position.set(0, 0.13, 0.05); grp.add(accent);
-  const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.22, 0.12),
-    new THREE.MeshStandardMaterial({ color: 0x222028, metalness: 0.6, roughness: 0.5 }));
-  mag.position.set(0, -0.18, -0.05); grp.add(mag);
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1b1824, metalness: 0.6, roughness: 0.38 });
+  const black = new THREE.MeshStandardMaterial({ color: 0x0d0b12, metalness: 0.75, roughness: 0.3 });
+  const tint = new THREE.MeshStandardMaterial({ color, metalness: 0.4, roughness: 0.35, emissive: color, emissiveIntensity: 0.35 });
+  const box = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); grp.add(o); return o; };
+  box(0.085, 0.13, 0.5, dark, 0, 0, 0.02);          // receiver
+  box(0.07, 0.11, 0.26, black, 0, -0.01, -0.33);    // stock
+  box(0.06, 0.15, 0.07, black, 0, -0.12, -0.12).rotation.x = -0.25;  // grip
+  box(0.055, 0.17, 0.09, dark, 0, -0.13, 0.08).rotation.x = 0.18;    // mag
+  box(0.05, 0.035, 0.3, black, 0, 0.085, 0.02);     // top rail
+  box(0.06, 0.06, 0.08, black, 0, 0.125, 0.0);      // sight
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.42, 10), black);
+  barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.025, 0.47); grp.add(barrel);
+  const accent = box(0.09, 0.025, 0.34, tint, 0, 0.055, 0.06);
   grp.userData.accent = accent;
   return grp;
 }

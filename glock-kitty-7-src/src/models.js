@@ -184,9 +184,14 @@ function heroMaterial(src) {
         float mx = max( c.r, max( c.g, c.b ) ), mn = min( c.r, min( c.g, c.b ) );
         float sat = mx > 0.0 ? ( mx - mn ) / mx : 0.0;
         float hue = ( c.g - c.b ) / max( c.r - c.b, 1e-4 );   // 0 red .. 1 yellow, valid when r >= g >= b
-        float skin = step( c.g, c.r ) * step( c.b, c.g ) * smoothstep( 0.08, 0.2, sat ) * smoothstep( 0.05, 0.2, hue ) * ( 1.0 - smoothstep( 0.75, 0.95, hue ) ) * smoothstep( 0.03, 0.08, mx );
+        // chroma (not saturation) so dark tattoo ink on skin is caught while
+        // near-black hair, which has almost no chroma, is left alone
+        float chroma = mx - mn;
+        float skin = step( c.g, c.r ) * step( c.b, c.g ) * smoothstep( 0.03, 0.09, chroma ) * smoothstep( 0.05, 0.2, hue ) * ( 1.0 - smoothstep( 0.75, 0.95, hue ) );
         float lum = dot( c, vec3( 0.299, 0.587, 0.114 ) );
-        vec3 yel = vec3( 1.0, 0.82, 0.08 ) * clamp( 0.35 + lum * 3.0, 0.0, 1.15 );
+        // flatten the texture's contrast so the skin reads as smooth cartoon
+        // yellow with faint tattoos instead of a blotchy pattern
+        vec3 yel = vec3( 1.0, 0.82, 0.1 ) * ( 0.62 + 0.4 * clamp( lum * 2.4, 0.0, 1.0 ) );
         diffuseColor.rgb = mix( c, yel, skin );
       }`).replace(
       '#include <dithering_fragment>',
@@ -324,10 +329,11 @@ export function aimArms(ch, target, twoHanded = true, isDir = false) {
   if (_side.lengthSq() < 1e-6) _side.set(1, 0, 0);
   _side.normalize();                                 // character's right
   if (twoHanded) {
-    // grip sits in front of the right side of the chest, a little low and in
-    _grip.copy(_sh).addScaledVector(_dir, reach * 0.62).addScaledVector(_side, -reach * 0.22);
-    _grip.y -= reach * 0.12;
-    _pole.set(0, -1, 0).addScaledVector(_side, 0.7).addScaledVector(_dir, -0.4);
+    // shouldered hold: grip out to the right of the chest with the elbow
+    // flared out and down, so the arms read from the over-the-shoulder camera
+    _grip.copy(_sh).addScaledVector(_dir, reach * 0.5).addScaledVector(_side, reach * 0.06);
+    _grip.y -= reach * 0.1;
+    _pole.set(0, -0.55, 0).addScaledVector(_side, 1.0).addScaledVector(_dir, -0.5);
   } else {
     // one-handed (melee swing): nearly straight arm along the direction
     _grip.copy(_sh).addScaledVector(_dir, reach * 0.92);
@@ -336,9 +342,10 @@ export function aimArms(ch, target, twoHanded = true, isDir = false) {
   solveArm(B, R, 'Right', _grip, _pole);
   if (twoHanded && la) {
     rh.getWorldPosition(_b);
-    _grip.copy(_b).addScaledVector(_dir, reach * 0.38);
-    _grip.y -= reach * 0.04;
-    _pole.set(0, -1, 0).addScaledVector(_side, -0.35).addScaledVector(_dir, -0.2);
+    _grip.copy(_b).addScaledVector(_dir, reach * 0.42).addScaledVector(_side, -reach * 0.04);
+    _grip.y -= reach * 0.03;
+    // support elbow hangs down and out to the left so it shows past the torso
+    _pole.set(0, -0.5, 0).addScaledVector(_side, -1.3).addScaledVector(_dir, -0.25);
     solveArm(B, R, 'Left', _grip, _pole);
   }
   return _dir;
