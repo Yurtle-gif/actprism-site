@@ -204,6 +204,7 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
       <button class="btn ghost seg" data-fit="boss" type="button" aria-pressed="false">Boss Fit</button>
     </div>
     <div class="row" role="group" aria-label="Glock slide" id="skinRow"><span class="best">Slide</span></div>
+    <div class="row" role="group" aria-label="Gun" id="gunRow"><span class="best">Gun</span></div>
     <p class="callout" id="challengeLine" hidden></p>
     <div class="daily">
       <div><p class="eyebrow" id="dailyEye">Daily challenge</p><p class="note" id="dailyNote"></p></div>
@@ -448,6 +449,9 @@ const SHOP = [
   { id: 'drip_pack',  name: 'Full Drip Pack',  price: 299, desc: 'Start every run in all five pieces: kicks, sweats, chain, jersey and frames.' },
   { id: 'skin_ice',   name: 'Ice slide',       price: 99,  desc: 'A frosted light-blue slide on the Glock.' },
   { id: 'skin_blood', name: 'Blood red slide', price: 99,  desc: 'Deep red slide. Mean.' },
+  { id: 'gun_arp',     name: 'ARP',             price: 99,  desc: 'Run the block with an AR pistol. Looks only: same damage as the Glock.' },
+  { id: 'gun_hellcat', name: 'Hellcat',         price: 99,  desc: 'Compact pistol with a red dot on top. Looks only: same damage as the Glock.' },
+  { id: 'gun_draco',   name: 'Draco',           price: 99,  desc: 'Wood-furniture AK pistol. Looks only: same damage as the Glock.' },
   { id: 'kitty_pass', name: 'Kitty Pass',      price: 499, desc: 'Everything: the drip pack, every slide including Gold, the Lowrider on day one, and a star on your tag.' }
 ];
 const money = c => '$' + (c / 100).toFixed(2);
@@ -477,11 +481,39 @@ const SKINS = {
   ice:    { name: 'Ice',       slide: '#bfe8ff', hi: '#ffffff', buy: 'skin_ice' },
   blood:  { name: 'Blood red', slide: '#c8102e', hi: '#ff6b7a', buy: 'skin_blood' }
 };
+// gun looks for the starting gun: what you hold and what the HUD calls it, never how hard it hits
+const GUN_SKINS = {
+  glock:   { name: 'Glock 17' },
+  arp:     { name: 'ARP',     buy: 'gun_arp' },
+  hellcat: { name: 'Hellcat', buy: 'gun_hellcat' },
+  draco:   { name: 'Draco',   buy: 'gun_draco' }
+};
+const gunSkinOf = id => GUN_SKINS[id] && (!GUN_SKINS[id].buy || owned(GUN_SKINS[id].buy)) ? id : 'glock';
+const myGunSkin = () => gunSkinOf(store.get('gk.gun', 'glock'));
+// online mates carry their own look (p.gs); everyone else is this device's pick
+const gunLookOf = p => p && p.gs && GUN_SKINS[p.gs] ? p.gs : myGunSkin();
+function setGunSkin(id) { id = gunSkinOf(id); store.set('gk.gun', id); renderGuns(); TEL.track('gun_select', { gun: id }); }
+function renderGuns() {
+  const row = $('gunRow');
+  row.querySelectorAll('button').forEach(b => b.remove());
+  const cur = myGunSkin();
+  for (const id of Object.keys(GUN_SKINS)) {
+    const g = GUN_SKINS[id], ok = gunSkinOf(id) === id, item = g.buy && SHOP.find(i => i.id === g.buy);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn ghost seg' + (ok ? '' : ' lock'); b.dataset.gun = id;
+    b.textContent = ok ? g.name : g.name + ' · ' + money(item.price);
+    b.setAttribute('aria-pressed', id === cur ? 'true' : 'false');
+    b.title = ok ? '' : 'In the shop';
+    b.addEventListener('click', () => { audioInit(); if (ok) { setGunSkin(id); SFX.choose(); } else openShop(true); });
+    row.appendChild(b);
+  }
+}
 const skinOk = id => SKINS[id].buy ? owned(SKINS[id].buy) : hasUnlock('skin', id);
 const skinOf = id => SKINS[id] && skinOk(id) ? id : 'pink';
 let SKIN = SKINS[skinOf(store.get('gk.skin', 'pink'))];
 function setSkin(id) { id = skinOf(id); SKIN = SKINS[id]; store.set('gk.skin', id); renderSkins(); TEL.track('skin_select', { skin: id }); }
 function renderSkins() {
+  renderGuns();
   const row = $('skinRow');
   row.querySelectorAll('button').forEach(b => b.remove());
   const cur = skinOf(store.get('gk.skin', 'pink'));
@@ -3201,9 +3233,30 @@ function drawGlock(x, y, ang, recoil, flash) {
   poly([7, 0, 13.5, 0, 11.5, 10, 5.5, 9.5], C.glock);
   ctx.fillStyle = C.glock; ctx.fillRect(10, 0.5, 14, 2.6);
   ctx.strokeStyle = C.glock; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(14.5, 2.5, 3, 0, Math.PI); ctx.stroke();
-  const gk = (ST.gun || GUNS.glock).id;
-  let mz = 30;
-  if (gk === 'ak') {
+  const gk = (ST.gun || GUNS.glock).id, look = gk === 'glock' ? gunLookOf(GUN_P) : '';
+  let mz = 30, slideL = 22;
+  if (look === 'arp') {
+    // AR pistol: brace behind the grip, straight stick mag, long handguard out front
+    poly([4, -4.5, -9, -3.2, -9, 2.6, -3, 2.6, 4, 1], C.glock);
+    rr(12, 0.5, 5, 12, 1, C.glock);
+    ctx.fillStyle = '#2b2833'; ctx.fillRect(25, -5, 13, 4.4);
+    ctx.fillStyle = C.glock; ctx.fillRect(38, -3.6, 5, 2);
+    rr(13, -8.2, 8, 2.6, 0.8, C.glock);
+    mz = 44;
+  } else if (look === 'draco') {
+    // AK pistol, no stock: wood handguard, curved mag, gas tube over the barrel
+    poly([13, 1, 18.5, 1, 22, 6, 25.5, 13.5, 19.5, 15, 16.5, 8], C.glock);
+    rr(24, -6, 14, 6, 1.6, '#8a5a32');
+    ctx.fillStyle = '#b07a48'; ctx.fillRect(25, -6, 12, 1.4);
+    ctx.fillStyle = C.glock; ctx.fillRect(24, -7.6, 15, 1.6); ctx.fillRect(38, -3.6, 7, 2); ctx.fillRect(43, -5.6, 1.6, 2.4);
+    mz = 46;
+  } else if (look === 'hellcat') {
+    // compact: shorter slide with a red dot riding on top
+    slideL = 18;
+    rr(10, -9.6, 7, 4.2, 1.2, '#26232e');
+    circ(13.5, -7.5, 1.1, '#ff3b4f');
+    mz = 26;
+  } else if (gk === 'ak') {
     poly([4, -5, -11, -3, -11, 4, 4, 2], '#8a5a32');
     ctx.fillStyle = C.glock; ctx.fillRect(24, -4.2, 20, 2.6); rr(28, -7, 6, 3.4, 1, C.glock);
     poly([13, 0.5, 19, 0.5, 22, 12, 16, 13], C.glock);
@@ -3217,8 +3270,8 @@ function drawGlock(x, y, ang, recoil, flash) {
     ctx.fillStyle = C.glock; ctx.fillRect(26, -4.2, 7, 3);
     mz = 34;
   }
-  rr(4, -5.5, 22, 6.5, 1.5, SKIN.slide);
-  ctx.fillStyle = SKIN.hi; ctx.fillRect(6, -5.5, 19, 1.4);
+  rr(4, -5.5, slideL, 6.5, 1.5, SKIN.slide);
+  ctx.fillStyle = SKIN.hi; ctx.fillRect(6, -5.5, slideL - 3, 1.4);
   ctx.fillStyle = C.kittyDark; for (let i = 0; i < 4; i++) ctx.fillRect(6 + i * 1.6, -3.6, 0.8, 3);
   if (ARM_GRIP) {
     // the painted fist is drawn over the grip afterwards
@@ -3293,7 +3346,9 @@ function heroFrame(p, moving) {
   const ph = moving ? [1, 0, 2, 0][Math.floor(p.walk * 14 / Math.PI) & 3] : 0;
   return (L.f && (carImg(b + L.f + ph) || carImg(b + L.f + '0'))) || carImg(b + ph) || carImg(b + '0');
 }
+let GUN_P = null;
 function drawGuns(p, bob, face) {
+  GUN_P = p;
   const hy = HERO_ON ? 22 : 0;
   const sx = p.x + face * PSZ, sy = p.y - (36 + hy + bob) * PSZ;
   const px = p.x + face * 4 * PSZ, py = p.y - (31 + hy + bob) * PSZ;
@@ -4045,7 +4100,8 @@ function drawAmmo(x, y, u) {
   const wpx = per * (rw + gap);
   const label = frenzy ? '∞' : p.ammo + '/' + mag;
   hudText(label, x + wpx + 8 * u, y + rh * 0.95, 16 * u, frenzy ? '#7ee08a' : C.ink);
-  hudText((ST.gun || GUNS.glock).name, x, y - 5 * u, 12 * u, C.dim, 'left', FB, '700');
+  const G = ST.gun || GUNS.glock;
+  hudText(G.id === 'glock' ? GUN_SKINS[gunLookOf(meP())].name : G.name, x, y - 5 * u, 12 * u, C.dim, 'left', FB, '700');
   let ny = y + rows * (rh + 5 * u) + 4 * u;
   if (p.reloadT > 0) {
     const k = 1 - p.reloadT / p.reloadMax;
@@ -4081,10 +4137,12 @@ function drawHUD() {
   hudPlate(L - 10, T - 8, lw + 20, 64 * u);
   ctx.font = '30px ' + FD; const sw = Math.max(150 * u, ctx.measureText(fmt(S.score)).width * u + 24, ctx.measureText('Best today ' + fmt(Math.max(curBest, S.score))).width * 0.5 * u + 24);
   hudPlate(R - sw - 10, T - 8, sw + 20, 64 * u);
+  // a bar between the two plates needs room; on a narrow screen it goes underneath them instead
+  const stack = touchMode || (R - sw - 10) - (L + lw + 10) < 250;
   for (let i = 0; i < 9; i++) lifeIcon(L + 10 * u + i * 22 * u, T + 16 * u, 8 * u, i < p.lives);
   // the team: one line per other player
   if (S.mates.length && !S.ride) {
-    let ty = T + (touchMode ? 124 : 78) * u;
+    let ty = T + (stack ? 124 : 78) * u;
     for (const m of S.mates) { hudText(m.name + ' · ' + (m.dead ? 'down' : m.lives + (m.lives === 1 ? ' life' : ' lives')), L, ty, 14 * u, m.dead ? C.hurt : C.ink, 'left', FB, '700'); ty += 18 * u; }
   }
   hudText((S.daily ? 'Daily · ' : '') + (S.ride ? 'After wave ' + S.wave + ' · ' + RIDE().name : 'Wave ' + S.wave + ' · ' + SCN().name), L, T + 48 * u, 14 * u, C.dim);
@@ -4104,7 +4162,7 @@ function drawHUD() {
   const boss = S.enemies.find(e => e.t === 'boss');
   if (S.ride) {
     const r = S.ride;
-    const bw = Math.min(460, W - 2 * L - 40), bx = (W - bw) / 2, by = touchMode ? T + 64 * u + 46 : T + 22;
+    const bw = Math.min(460, W - 2 * L - 40), bx = (W - bw) / 2, by = stack ? T + 64 * u + 46 : T + 22;
     hudText((r.kind === 'bike' ? 'Dirtbike run' : 'Getaway car') + ' · ' + RIDE().name, W / 2, by - 6, 15 * u, C.ink, 'center');
     ctx.fillStyle = 'rgba(16,11,31,.85)'; ctx.fillRect(bx - 3, by + 1, bw + 6, 10);
     ctx.globalAlpha = 0.25; ctx.fillStyle = C.menace; ctx.fillRect(bx, by + 4, bw, 4); ctx.globalAlpha = 1;
@@ -4117,7 +4175,7 @@ function drawHUD() {
     hudText((r.kills ? r.kills + ' cams shot · ' : '') + (r.spotted ? 'Spotted ' + r.spotted + 'x' : 'Unseen so far'), bx + bw, by + 30 * u, 12 * u, r.spotted ? C.hurt : C.menace, 'right', FB, '700');
   }
   if (boss) {
-    const bw = Math.min(460, W - 2 * L - 40), bx = (W - bw) / 2, by = touchMode ? T + 64 * u + 46 : T + 22;
+    const bw = Math.min(460, W - 2 * L - 40), bx = (W - bw) / 2, by = stack ? T + 64 * u + 46 : T + 22;
     const bi = BOSSES[boss.kind] || BOSSES.flockzilla, bc = bossCol(boss.kind);
     hudPlate(bx - 14, by - 26 * u, bw + 28, 28 * u + 22);
     hudText(bi.name, W / 2, by - 6, 15 * u, boss.enr ? bc : C.ink, 'center');
@@ -4131,12 +4189,14 @@ function drawHUD() {
     const pop = REDUCED ? 1 : 1 + Math.max(0, 0.25 - el) * 1.2;
     ctx.globalAlpha = a;
     ctx.save(); ctx.translate(W / 2, H * 0.36); ctx.scale(pop, pop);
-    const size = clamp(W / 9, 34, 76);
+    const room = W - SAFE.l - SAFE.r - 40;
+    ctx.font = '100px ' + FD;
+    const size = Math.min(clamp(W / 9, 34, 76), room / ctx.measureText(b.title).width * 100);
     ctx.font = size + 'px ' + FD; ctx.textAlign = 'center';
     ctx.fillStyle = C.hurt; ctx.fillText(b.title, 3, 3);
     ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(16,11,31,.9)'; ctx.strokeText(b.title, 0, 0);
     ctx.fillStyle = C.ink; ctx.fillText(b.title, 0, 0);
-    if (b.sub) hudText(b.sub, 0, size * 0.62, clamp(W / 40, 16, 22), C.brass, 'center', FB, '600');
+    if (b.sub) { ctx.font = '600 100px ' + FB; hudText(b.sub, 0, size * 0.62, Math.min(clamp(W / 40, 16, 22), room / ctx.measureText(b.sub).width * 100), C.brass, 'center', FB, '600'); }
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -4470,6 +4530,7 @@ function hostInput(id, m) {
   o.inAt = performance.now();
   o.rx = +m.x || 0; o.ry = +m.y || 0; o.vx = +m.vx || 0; o.vy = +m.vy || 0; o.aim = +m.a || 0; o.walk = +m.w || 0;
   o.reloadT = +m.ld || 0; o.reloadMax = +m.lm || 1;
+  if (GUN_SKINS[m.gs]) o.gs = m.gs;
   if (m.fl) o.flash = 0.05;
   if (m.rc) o.recoil = 1;
   const dt = +m.dt || 0;
@@ -4499,7 +4560,7 @@ function hostSend(real) {
   NET.sendT = S.mode === 'play' ? 1 / 15 : 0.25;
   const me = S.p, L = lookOf();
   const pl = o => ({ i: o === me ? 0 : o.id, n: o === me ? netName() : o.name, c: o === me ? L.cat : o.cat, f: o === me ? L.fit : o.fit, x: o.x, y: o.y, vx: o.vx, vy: o.vy, a: o.aim, w: o.walk,
-    fl: o.flash, rc: o.recoil, dt: o.dashT, l: o.lives, iv: o.inv, d: o.dead ? 1 : 0, j: o.jam, ln: o.lean, ld: o.reloadT, lm: o.reloadMax });
+    fl: o.flash, rc: o.recoil, dt: o.dashT, l: o.lives, iv: o.inv, d: o.dead ? 1 : 0, j: o.jam, ln: o.lean, ld: o.reloadT, lm: o.reloadMax, g: o === me ? myGunSkin() : o.gs || 'glock' });
   const msg = { t: 's', m: S.mode, rt: S.runT, w: S.wave, ws: S.waveState, sc: S.score, k: S.kills, cb: S.combo, ct: S.comboT, bn: S.banner, cine: S.cine, fin: S.finale, ride: S.ride,
     cash: me.cash, picks: me.picks, gun: me.gun, diff: S.diff, daily: S.daily, P: [me].concat(S.mates).map(pl), E: S.enemies,
     B: S.bullets.map(b => [b.x, b.y, b.vx, b.vy, b.o || 0, b.life, b.h]), SH: S.shots, PK: S.pickups, SP: S.spawns, ev: NET.ev };
@@ -4538,7 +4599,7 @@ function clientSnap(m) {
   if (m.ride) {
     S.ride = m.ride;
     NET.rideP = Object.assign(NET.rideP || {}, { x: hostP.x, y: hostP.y, vx: 0, vy: 0, aim: hostP.a, walk: hostP.w, flash: hostP.fl, recoil: hostP.rc, inv: hostP.iv, dead: !!hostP.d, lives: hostP.l,
-      jam: hostP.j, cat: hostP.c, fit: hostP.f, picks: p.picks, cash: m.cash, ammo: ST.mag, reloadT: 0, reloadMax: 1, frenzy: 0, spread: 0, lean: 0, dashCD: 0, dashT: 0, r: 13, mates: [] });
+      jam: hostP.j, cat: hostP.c, fit: hostP.f, gs: hostP.g, picks: p.picks, cash: m.cash, ammo: ST.mag, reloadT: 0, reloadMax: 1, frenzy: 0, spread: 0, lean: 0, dashCD: 0, dashT: 0, r: 13, mates: [] });
   } else if (S.ride) {
     // the ride is over: everyone lands back on the block next to the host
     S.ride = null; NET.rideP = null;
@@ -4550,7 +4611,7 @@ function clientSnap(m) {
     const q = old.get(o.i) || { id: o.i, r: 13, picks: p.picks };
     smooth(q, o.x, o.y);
     Object.assign(q, { name: o.n, cat: o.c, fit: o.f, vx: o.vx, vy: o.vy, aim: o.a, walk: o.w, flash: o.fl, recoil: o.rc, dashT: o.dt, lives: o.l, inv: o.iv, dead: !!o.d,
-      lean: o.ln, reloadT: o.ld, reloadMax: o.lm || 1, picks: p.picks });
+      lean: o.ln, reloadT: o.ld, reloadMax: o.lm || 1, picks: p.picks, gs: o.g });
     return q;
   });
   const oldE = new Map(S.enemies.map(e => [e.id, e]));
@@ -4562,7 +4623,8 @@ function clientSnap(m) {
   }
   NET.hostMode = m.m;
   if (m.m === 'over' && S.mode !== 'over') {
-    S.mode = 'over'; S.boardIdx = -1; S.checkpoint = null; S.newBest = false; S.killer = '';
+    const kb = S.enemies.find(e => e.t === 'boss' && !e.dead);
+    S.mode = 'over'; S.boardIdx = -1; S.checkpoint = null; S.newBest = false; S.killer = S.ride ? '' : (kb ? kb.kind : '');
     showFor('over');
   }
 }
@@ -4620,7 +4682,7 @@ function clientStep(dt, real) {
   NET.inT -= real;
   if (NET.inT <= 0) {
     NET.inT = 0.05;
-    const o = { t: 'p', x: p.x, y: p.y, vx: p.vx, vy: p.vy, a: p.aim, w: p.walk, dt: p.dashT, dx: p.ddx, dy: p.ddy, ld: p.reloadT, lm: p.reloadMax };
+    const o = { t: 'p', x: p.x, y: p.y, vx: p.vx, vy: p.vy, a: p.aim, w: p.walk, dt: p.dashT, dx: p.ddx, dy: p.ddy, ld: p.reloadT, lm: p.reloadMax, gs: myGunSkin() };
     if (p.flash > 0) o.fl = 1;
     if (p.recoil > 0.5) o.rc = 1;
     if (NET.outB.length) { o.b = NET.outB; NET.outB = []; }
@@ -4821,6 +4883,7 @@ async function claimPurchase() {
       TEL.track('purchase_complete', { item: j.item, cents: it ? it.price : 0 }); TEL.flush(false);
       $('shopNote').textContent = (it ? it.name : 'Item') + ' unlocked. Thank you.';
       if (j.item === 'skin_ice') setSkin('ice'); else if (j.item === 'skin_blood') setSkin('blood');
+      else if (j.item.startsWith('gun_')) setGunSkin(j.item.slice(4));
     } else { $('shopNote').textContent = 'Payment not confirmed yet. If you were charged, reload in a minute.'; TEL.track('purchase_failed', { item, reason: (j && j.error) || 'not_paid' }); }
   } catch (e) { $('shopNote').textContent = 'Could not confirm the payment. Reload in a minute.'; }
 }

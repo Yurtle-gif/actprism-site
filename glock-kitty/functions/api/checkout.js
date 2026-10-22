@@ -4,6 +4,9 @@ const ITEMS = {
   drip_pack:  { name: 'Full Drip Pack',  amount: 299 },
   skin_ice:   { name: 'Ice slide',       amount: 99 },
   skin_blood: { name: 'Blood red slide', amount: 99 },
+  gun_arp:     { name: 'ARP',             amount: 99 },
+  gun_hellcat: { name: 'Hellcat',         amount: 99 },
+  gun_draco:   { name: 'Draco',           amount: 99 },
   kitty_pass: { name: 'Kitty Pass',      amount: 499 }
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });

@@ -37,6 +37,7 @@ const EVENTS = {
   cat_select:        ['cat'],
   fit_select:        ['fit'],
   skin_select:       ['skin'],
+  gun_select:        ['gun'],
   diff_select:       ['diff'],
   unlock:            ['streak', 'items'],
   store_open:        ['owned', 'from'],
