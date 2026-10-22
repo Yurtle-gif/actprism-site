@@ -1,7 +1,7 @@
 // main.js — Glock Kitty 7 : Neo-Tokyo 85 battle royale. Engine + all gameplay.
 import * as THREE from 'three';
 import {
-  createRenderer, createComposer, QUALITY, QUALITY_LABEL, setQuality, setupEnvironment, makeStylized,
+  createRenderer, createComposer, QUALITY, QP, QUALITY_LABEL, setQuality, setupEnvironment, makeStylized,
   makeCamoTexture, makeAsphaltTexture, makeDenimTexture, makeStormMaterial,
 } from './gfx.js';
 import {
@@ -1917,7 +1917,7 @@ function adaptResolution(rawDt) {
   if (resT < 1) return;
   resT = 0;
   let next = resScale;
-  const floor = QUALITY === 'ultra' ? 1 : 0.55; // 4K Ultra never trades sharpness for frames
+  const floor = QP.floor; // 4K Ultra never trades sharpness for frames
   if (frameEma > 22 && resScale > floor) next = Math.max(floor, resScale - 0.15);
   else if (frameEma < 14 && resScale < 1) next = Math.min(1, resScale + 0.1);
   if (next === resScale) return;
@@ -2073,8 +2073,8 @@ async function init() {
 
   buildWorld();
   snapshotStatic();
-  if (QUALITY !== 'perf') {
-    const an = Math.min(QUALITY === 'ultra' ? 16 : 8, renderer.capabilities.getMaxAnisotropy());
+  {
+    const an = Math.min(QP.aniso, renderer.capabilities.getMaxAnisotropy());
     scene.traverse((o) => {
       const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
       for (const m of ms) for (const k of ['map', 'normalMap', 'emissiveMap']) if (m[k] && m[k].anisotropy < an) { m[k].anisotropy = an; m[k].needsUpdate = true; }

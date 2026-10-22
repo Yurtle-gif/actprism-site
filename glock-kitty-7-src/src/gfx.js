@@ -12,22 +12,39 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 export const LOW_MEM = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
   (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) || (navigator.deviceMemory || 8) <= 4;
 
-// Graphics quality: 'perf' (phones), 'hd' (default desktop), 'ultra' (4K: renders at
-// least 2160 lines even on a 1080p screen, 4096 shadows, full-res bloom, no auto downscale).
+// Graphics quality, three levels, tuned separately for desktops and for phones/tablets.
+// Desktop: PERFORMANCE / HD / 4K ULTRA (ultra renders at least 2160 lines, even on 1080p).
+// Phone:   PERFORMANCE / HD / MAX (MAX = the screen's full native resolution).
 const QKEY = 'gk7-quality';
+const PRESETS = {
+  desktop: {
+    perf:  { pr: (d) => Math.min(d, 1.25), msaa: 2, shadow: 1024, bloom: 0.5, sharpen: 0.2, aniso: 4, floor: 0.55 },
+    hd:    { pr: (d) => Math.min(d, 2), msaa: 4, shadow: 2048, bloom: 0.5, sharpen: 0.25, aniso: 8, floor: 0.55 },
+    ultra: { pr: (d) => Math.min(3, Math.max(d, 2160 / Math.max(1, window.innerHeight))), msaa: 4, shadow: 4096, bloom: 0.75, sharpen: 0.45, aniso: 16, floor: 1 },
+  },
+  phone: {
+    perf:  { pr: (d) => Math.min(d, 1.25), msaa: 2, shadow: 1024, bloom: 0.4, sharpen: 0.35, aniso: 4, floor: 0.6 },
+    hd:    { pr: (d) => Math.min(d, 2), msaa: 2, shadow: 2048, bloom: 0.5, sharpen: 0.35, aniso: 8, floor: 0.65 },
+    ultra: { pr: (d) => Math.min(d, 3), msaa: 4, shadow: 2048, bloom: 0.5, sharpen: 0.4, aniso: 16, floor: 0.75 },
+  },
+};
+const DEVICE = LOW_MEM ? 'phone' : 'desktop';
+// Newer iPhones (3x screens, 844pt+ long side: iPhone 12 and later) and iPads start on HD.
+function autoQuality() {
+  if (!LOW_MEM) return 'hd';
+  const dpr = window.devicePixelRatio || 1, long = Math.max(screen.width, screen.height);
+  const ipad = navigator.maxTouchPoints > 1 && /Macintosh|iPad/.test(navigator.userAgent);
+  return ipad || (dpr >= 3 && long >= 844) ? 'hd' : 'perf';
+}
 export const QUALITY = (() => {
   let q = null;
   try { q = localStorage.getItem(QKEY); } catch (e) { /* storage blocked */ }
-  return q === 'perf' || q === 'hd' || q === 'ultra' ? q : (LOW_MEM ? 'perf' : 'hd');
+  return q === 'perf' || q === 'hd' || q === 'ultra' ? q : autoQuality();
 })();
-export const QUALITY_LABEL = { perf: 'PERFORMANCE', hd: 'HD', ultra: '4K ULTRA' };
+export const QP = PRESETS[DEVICE][QUALITY];
+export const QUALITY_LABEL = { perf: 'PERFORMANCE', hd: 'HD', ultra: LOW_MEM ? 'MAX' : '4K ULTRA' };
 export function setQuality(q) { try { localStorage.setItem(QKEY, q); } catch (e) { /* ignore */ } }
-export function qualityPixelRatio() {
-  const dpr = window.devicePixelRatio || 1;
-  if (QUALITY === 'perf') return Math.min(dpr, 1.25);
-  if (QUALITY === 'hd') return Math.min(dpr, 2);
-  return Math.min(3, Math.max(dpr, 2160 / Math.max(1, window.innerHeight)));
-}
+export const qualityPixelRatio = () => QP.pr(window.devicePixelRatio || 1);
 
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -117,7 +134,7 @@ export function createComposer(renderer, scene, camera) {
   // the composer's render targets skip the canvas MSAA, so give them their own
   // samples; otherwise every edge in the game is jagged
   const pr = renderer.getPixelRatio();
-  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: QUALITY === 'perf' ? 2 : 4 });
+  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: QP.msaa });
   const composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.65, 0.4, 0.85);
@@ -127,7 +144,7 @@ export function createComposer(renderer, scene, camera) {
   composer.addPass(speedPass);
   composer.addPass(new OutputPass());
   const grade = new ShaderPass(GradeShader);
-  grade.uniforms.uSharpen.value = QUALITY === 'ultra' ? 0.45 : QUALITY === 'hd' ? 0.25 : 0;
+  grade.uniforms.uSharpen.value = QP.sharpen;
   composer.addPass(grade);
   return {
     composer, bloom, speedPass, grade,
@@ -135,7 +152,7 @@ export function createComposer(renderer, scene, camera) {
       composer.setSize(w, h);
       // bloom is a soft glow: half resolution looks the same and costs a quarter
       const pr = renderer.getPixelRatio();
-      const bs = QUALITY === 'ultra' ? 0.75 : 0.5;
+      const bs = QP.bloom;
       bloom.setSize(Math.round(w * pr * bs), Math.round(h * pr * bs));
       grade.uniforms.uTexel.value.set(1 / (w * pr), 1 / (h * pr));
       speedPass.uniforms.uAspect.value = w / h;
@@ -340,7 +357,7 @@ export function setupEnvironment(renderer, scene) {
   const sun = new THREE.DirectionalLight(0xffe2f4, 2.0);
   sun.position.set(60, 120, 40);
   sun.castShadow = true;
-  sun.shadow.mapSize.setScalar(QUALITY === 'ultra' ? 4096 : QUALITY === 'perf' ? 1024 : 2048);
+  sun.shadow.mapSize.setScalar(QP.shadow);
   // the sun follows the player, so a tight frustum keeps shadows crisp
   const d = 55;
   sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
