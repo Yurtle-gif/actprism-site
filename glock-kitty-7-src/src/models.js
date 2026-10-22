@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+import { LOW_MEM, QUALITY } from './gfx.js';
 
 import heroUrl from './assets/models/hero.glb.gz?url';
 import snowUrl from './assets/models/snow.glb.gz?url';
@@ -249,8 +250,10 @@ export function makeCharacter(name) {
       if (o.isSkinnedMesh) skinned.push(o);
     }
   });
-  // ink outline on the player only: it doubles the skinned triangles
-  if (name === 'hero' || name === 'rohni') for (const o of skinned) addOutline(o);
+  // ink outline on the player only: it doubles the skinned triangles, so phones on
+  // PERFORMANCE skip it, and ROHNi (60k tris) skips it on every phone preset
+  const outline = (name === 'hero' && !(LOW_MEM && QUALITY === 'perf')) || (name === 'rohni' && !LOW_MEM);
+  if (outline) for (const o of skinned) addOutline(o);
   const rest = {};
   for (const [k, b] of Object.entries(bones)) rest[k] = b.quaternion.clone();
   const root = new THREE.Group(); root.add(model);

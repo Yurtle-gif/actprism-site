@@ -534,6 +534,21 @@ function buildHighway() {
 }
 
 // ------------------------------------------------------------------- character
+// soft round glow for muzzle flashes (a plain plane read as a hard white square on phones)
+let _flashTex = null;
+function flashMaterial(color) {
+  if (!_flashTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.7)');
+    gr.addColorStop(0.6, 'rgba(255,255,255,0.15)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+    _flashTex = new THREE.CanvasTexture(c); _flashTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  return new THREE.MeshBasicMaterial({ map: _flashTex, color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+}
+
 function buildKitty(opts = {}) {
   const scaleRim = opts.rim || { color: 0x59e7ff, power: 2.6, strength: 0.8 };
   const skin = opts.skin || 0x6b4a2f;
@@ -628,8 +643,7 @@ function buildKitty(opts = {}) {
   gun.position.set(0.55, 1.25, 0.25);
   g.add(gun); parts.gun = gun;
   // muzzle flash
-  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5),
-    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), flashMaterial(0xffe9a0));
   flash.position.set(0.55, 1.25, 0.95); g.add(flash); parts.flash = flash;
 
   // melee deck held (hidden by default)
@@ -671,8 +685,7 @@ function buildRealCat(name, opts = {}) {
   const gun = buildGunMesh(opts.gunColor ?? 0xb9c4cf);
   gun.scale.setScalar(0.85);
   g.add(gun); parts.gun = gun;
-  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.45),
-    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), flashMaterial(0xffe9a0));
   flash.position.set(0, 0.03, 0.78); gun.add(flash); parts.flash = flash;
   const board = new THREE.Group();
   board.add(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 1.2),
@@ -960,11 +973,15 @@ function updateCamera(dt) {
   if (import.meta.env.VITE_GK_TEST && window.__gkCamHold) return;
   const p = player;
   // ADS lerp
-  const adsT = (adsDown && activeItem() && activeItem().kind === 'gun') ? 1 : 0;
-  p.cam.fov = lerp(p.cam.fov, lerp(70, 45, adsT), 1 - Math.exp(-12 * dt));
-  // the rigged model is a full-height person: pull back and drop the arm so head-to-sneakers stays in frame
+  const adsOn = (adsDown && activeItem() && activeItem().kind === 'gun') ? 1 : 0;
+  p.adsT = lerp(p.adsT || 0, adsOn, 1 - Math.exp(-14 * dt));
+  const adsT = p.adsT;
+  p.cam.fov = lerp(70, 52, adsT);
+  // the rigged model is a full-height person: pull back and drop the arm so head-to-sneakers stays in frame.
+  // Aiming moves the camera over the right shoulder, so the character sits left of the crosshair
+  // instead of covering it (ROHNi's coat is wide).
   const tall = !!p.char;
-  const right = lerp(tall ? 0.85 : 0.9, tall ? 0.7 : 0.62, adsT), up = lerp(tall ? 0.95 : 1.6, tall ? 0.72 : 1.55, adsT), back = lerp(tall ? 4.4 : 3.6, tall ? 2.6 : 2.5, adsT);
+  const right = lerp(tall ? 0.85 : 0.9, tall ? 1.3 : 0.75, adsT), up = lerp(tall ? 0.95 : 1.6, tall ? 0.7 : 1.5, adsT), back = lerp(tall ? 4.4 : 3.6, tall ? 3.4 : 2.6, adsT);
   const fov = p.cam.fov + p.sprintT * 7 * (1 - adsT) + fovOffset();
   if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 
@@ -1252,8 +1269,7 @@ function makeRobotMesh() {
   // the cam robots are skinny poles, so shots test against an invisible body-sized cylinder
   const hitbox = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 2.15, 10), new THREE.MeshBasicMaterial({ visible: false }));
   hitbox.position.y = 1.075; g.add(hitbox);
-  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5),
-    new THREE.MeshBasicMaterial({ color: 0xff8a8a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.45), flashMaterial(0xff8a8a));
   flash.position.set(0, 1.75, 0.6); g.add(flash);
   return { group: g, parts: { dreads: [], legs: [], arms: [], flash, body } };
 }
@@ -1719,6 +1735,7 @@ function startMatch() {
   spawnBots();
   hud.showScreen(null);
   hud.banner_('DROPPING INTO NEO-TOKYO 85', '#5fe0ff', 2200);
+  if (renderer.compileAsync) renderer.compileAsync(scene, camera).catch(() => {});
   audio.startBeat();
 }
 
@@ -1845,6 +1862,7 @@ function update(dt) {
 
   if (touchTick) {
     const it = activeItem();
+    if (adsDown && (player.skating || Math.hypot(touchMove.x, touchMove.y) > 0.92)) adsDown = false;
     touchTick({ running: running && !matchOver, nearChest: !!player._nearChest, ads: adsDown, skating: player.skating,
       building: build.selected != null, melee: it && it.kind === 'melee', heal: it && it.kind === 'heal' });
     if (fireDown && it && it.kind === 'gun') aimAssist(dt, it);
@@ -1936,16 +1954,32 @@ function adaptResolution(rawDt) {
   renderer.setSize(W, H);
   comp.setSize(W, H);
 }
+let frameErrs = 0;
 function animate() {
   requestAnimationFrame(animate);
   const raw = clock.getDelta();
   const dt = feelTick(Math.min(raw, 0.05));
-  update(dt);
-  fxTick(dt);
-  if (running) cullFar(dt);
-  if (comp) { adaptResolution(Math.min(raw, 0.25)); comp.composer.render(); }
-  else renderer.render(scene, camera);
+  try {
+    update(dt);
+    fxTick(dt);
+    if (running) cullFar(dt);
+  } catch (e) { reportFrameError(e); }
+  try {
+    if (comp) { adaptResolution(Math.min(raw, 0.25)); comp.composer.render(); }
+    else renderer.render(scene, camera);
+  } catch (e) { reportFrameError(e); }
 }
+// a small line in the corner with the first error, so a screenshot tells us what broke
+function reportFrameError(e) {
+  frameErrs++;
+  if (frameErrs > 1) return;
+  console.error('[GK7]', e);
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;left:8px;bottom:4px;z-index:60;font:11px monospace;color:#ff8a9a;background:#07020fcc;padding:2px 6px;border-radius:4px;max-width:70vw;pointer-events:none';
+  d.textContent = 'GK7 error: ' + String(e && (e.stack || e.message) || e).split('\n').slice(0, 2).join(' | ').slice(0, 220);
+  document.body.appendChild(d);
+}
+window.addEventListener('error', (e) => reportFrameError(e.error || e.message));
 
 // ------------------------------------------------------------------- input
 function setupInput(canvas) {
