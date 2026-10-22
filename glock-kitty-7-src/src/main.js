@@ -936,11 +936,16 @@ function updatePlayer(dt) {
   // muzzle flash fade
   if (p.parts.flash.material.opacity > 0) p.parts.flash.material.opacity = Math.max(0, p.parts.flash.material.opacity - dt * 12);
 
-  // reload
+  // reload: starts on its own when the held gun's mag is empty; swapping weapons cancels it
+  if (isGun && item.ammoInMag <= 0 && p.reloadT <= 0 && p.healT <= 0) startReload();
   if (p.reloadT > 0) {
-    p.reloadT -= dt;
-    hud.showReload(true, 1 - p.reloadT / (isGun ? item.reload : 1));
-    if (p.reloadT <= 0 && isGun) { item.ammoInMag = item.mag; hud.showReload(false); }
+    const r = p.reloadItem;
+    if (r !== item) { p.reloadT = 0; hud.showReload(false); }
+    else {
+      p.reloadT -= dt;
+      hud.showReload(true, 1 - p.reloadT / r.reload);
+      if (p.reloadT <= 0) { p.reloadT = 0; r.ammoInMag = r.mag; hud.showReload(false); }
+    }
   } else hud.showReload(false);
 
   // healing
@@ -1037,6 +1042,14 @@ function tryFire() {
   if (fireEdge) p.fireBuf = 0.12; // a click during cooldown fires on the first free frame
   const want = item.auto ? fireDown : p.fireBuf > 0;
   if (want && ready) { p.lastFire = now; p.fireBuf = 0; fireGun(item); }
+}
+
+// refill the mag after the gun's reload time (reserve ammo is unlimited)
+function startReload() {
+  const p = player, item = activeItem();
+  if (!item || item.kind !== 'gun' || p.reloadT > 0 || item.ammoInMag >= item.mag) return;
+  p.reloadT = item.reload; p.reloadItem = item;
+  haptic('light');
 }
 
 function fireGun(item) {
@@ -1970,14 +1983,21 @@ function animate() {
   } catch (e) { reportFrameError(e); }
 }
 // a small line in the corner with the first error, so a screenshot tells us what broke
+// shows each new error once, message first (Safari's stack leaves the message out), then hides it
+const seenErrs = new Set();
 function reportFrameError(e) {
   frameErrs++;
-  if (frameErrs > 1) return;
+  const msg = String(e && e.message || e);
+  if (seenErrs.has(msg) || seenErrs.size > 4) return;
+  seenErrs.add(msg);
   console.error('[GK7]', e);
+  const at = String(e && e.stack || '').split('\n').find(l => l.trim() && !l.includes(msg)) || '';
   const d = document.createElement('div');
+  d.className = 'gk-frame-err';
   d.style.cssText = 'position:fixed;left:8px;bottom:4px;z-index:60;font:11px monospace;color:#ff8a9a;background:#07020fcc;padding:2px 6px;border-radius:4px;max-width:70vw;pointer-events:none';
-  d.textContent = 'GK7 error: ' + String(e && (e.stack || e.message) || e).split('\n').slice(0, 2).join(' | ').slice(0, 220);
+  d.textContent = ('GK7 error: ' + msg + ' @ ' + at.trim()).slice(0, 220);
   document.body.appendChild(d);
+  setTimeout(() => d.remove(), 20000);
 }
 window.addEventListener('error', (e) => reportFrameError(e.error || e.message));
 
