@@ -264,6 +264,10 @@ export class HUD {
         <div class="gk-stat">Eliminations: <b>${data.kills}</b></div>
         <div class="gk-start-btn">CLICK TO RUN IT BACK</div>`;
     }
+    if (document.body.classList.contains('touch')) {
+      const b = this.screen.querySelector('.gk-start-btn'); if (b) b.textContent = b.textContent.replace('CLICK', 'TAP');
+      const k = this.screen.querySelector('.gk-keys'); if (k) k.innerHTML = '<b>Left thumb</b> move &nbsp; <b>Right thumb</b> look &nbsp; <b>FIRE</b> shoots and aims while you drag';
+    }
     return this.screen.querySelector('.gk-start-btn');
   }
 }

@@ -28,3 +28,14 @@ export function applyShake(cam) {
   cam.rotation.y += 0.035 * s * Math.sin(t * 1.7 + 2);
   cam.rotation.z += 0.02 * s * Math.sin(t * 2.1 + 4);
 }
+
+// Phone app: buzz through the native bridge when running inside the iPhone/Android app.
+let lastBuzz = 0;
+export function haptic(kind) {
+  const rn = window.ReactNativeWebView;
+  if (!rn) return;
+  const now = performance.now();
+  if (now - lastBuzz < 70) return;
+  lastBuzz = now;
+  try { rn.postMessage(JSON.stringify({ t: 'haptic', k: kind })); } catch (e) { /* ignore */ }
+}

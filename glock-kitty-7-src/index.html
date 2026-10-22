@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Glock Kitty 7</title>
 <meta name="description" content="Glock Kitty 7: a third-person battle royale on Neo-Tokyo 85 Island. Drop in, build, grind the Shuto expressway, outlast the Bass Storm.">
 <meta name="theme-color" content="#07020f">
@@ -137,6 +140,37 @@
     .gk-vitals { width: 170px; }
     .gk-right { transform: scale(.66); }
   }
+
+  /* phone touch controls (body.touch is set when the device has a touch screen) */
+  body.touch { touch-action: none; -webkit-touch-callout: none; }
+  #gk-touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
+  .gk-stick { position: absolute; display: none; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%;
+              background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 2px rgba(255,255,255,.35); }
+  .gk-knob { position: absolute; left: 37px; top: 37px; width: 50px; height: 50px; border-radius: 50%;
+             background: rgba(255,255,255,.55); box-shadow: 0 0 12px rgba(95,224,255,.6); }
+  .gk-tb { position: absolute; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+           width: 58px; height: 58px; background: rgba(6,3,14,.45); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55);
+           font-family: 'Anton', Impact, sans-serif; font-size: 13px; letter-spacing: .5px; color: #fff; text-shadow: 0 1px 2px #000; }
+  .gk-tb.on { background: rgba(95,224,255,.45); box-shadow: inset 0 0 0 2px #fff, 0 0 14px #5fe0ff; }
+  .gk-tb-fire { width: 86px; height: 86px; font-size: 17px; right: calc(28px + env(safe-area-inset-right)); bottom: 150px;
+                background: rgba(255,59,90,.35); box-shadow: inset 0 0 0 3px rgba(255,255,255,.75); }
+  .gk-tb-fire.on { background: rgba(255,59,90,.7); }
+  .gk-tb-jump { right: calc(130px + env(safe-area-inset-right)); bottom: 132px; }
+  .gk-tb-ads { right: calc(122px + env(safe-area-inset-right)); bottom: 206px; width: 50px; height: 50px; font-size: 12px; }
+  .gk-tb-crouch { right: calc(196px + env(safe-area-inset-right)); bottom: 168px; width: 50px; height: 50px; font-size: 12px; }
+  .gk-tb-skate { right: calc(190px + env(safe-area-inset-right)); bottom: 86px; width: 44px; height: 44px; font-size: 20px; }
+  .gk-tb-use { left: 50%; top: 58%; transform: translateX(-50%); width: 96px; height: 40px; border-radius: 20px;
+               background: rgba(182,255,58,.35); }
+  body.touch .gk-vitals { left: calc(16px + env(safe-area-inset-left)); bottom: auto; top: 12px; width: 200px; }
+  body.touch .gk-right { right: calc(10px + env(safe-area-inset-right)); bottom: 8px; transform: scale(.72); }
+  body.touch .gk-chip-key { display: none; }
+  body.touch .gk-chip-sub { display: block !important; font-size: 13px; padding: 4px 0; color: #fff; }
+  body.touch .gk-chip, body.touch .gk-slot { pointer-events: auto; }
+  body.touch .gk-topright { right: calc(12px + env(safe-area-inset-right)); top: 8px; transform: scale(.6); }
+  body.touch .gk-feed { display: none; }
+  .gk-rotate { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
+               gap: 12px; background: #07020f; color: #fff; font-family: 'Anton', Impact, sans-serif; font-size: 20px; pointer-events: auto; }
+  .gk-rotate div { font-size: 64px; color: #5fe0ff; }
 
   /* full-screen screens */
   .gk-screen { position: absolute; inset: 0; pointer-events: auto; display: flex; flex-direction: column;

@@ -10,7 +10,8 @@ import {
 import { AudioSynth } from './audio.js';
 import { loadArt, hasModel, makeProp, makeCharacter, setAnim, aimArms, tiledBox, ART } from './models.js';
 import { HUD } from './hud.js';
-import { addTrauma, hitStop, kickFov, feelTick, fovOffset, applyShake, resetFeel } from './feel.js';
+import { addTrauma, hitStop, kickFov, feelTick, fovOffset, applyShake, resetFeel, haptic } from './feel.js';
+import { IS_TOUCH, setupTouch } from './touch.js';
 import { createFx, emit as emitFx, fxTick, clearFx, fxMuzzle, fxSparks, fxBlood, fxDust, fxCasing } from './fx.js';
 
 // ---------------------------------------------------------------- utilities
@@ -45,6 +46,7 @@ const keys = {};
 let locked = false, lookFallback = false, fireDown = false, fireEdge = false, adsDown = false;
 let running = false, matchOver = false;
 let speedLineTarget = 0;
+const touchMove = { x: 0, y: 0 }; let touchTick = null;
 
 const rayc = new THREE.Raycaster();
 const V = new THREE.Vector3(), V2 = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
@@ -795,13 +797,17 @@ function updatePlayer(dt) {
   if (keys['KeyS']) iz -= 1;
   if (keys['KeyD']) ix += 1;
   if (keys['KeyA']) ix -= 1;
+  // phone stick: analog, and pushing it all the way out sprints
+  const stickMag = Math.min(1, Math.hypot(touchMove.x, touchMove.y));
+  if (stickMag > 0.12) { ix = touchMove.x; iz = touchMove.y; }
   const moveDir = new THREE.Vector3().addScaledVector(fwd, iz).addScaledVector(right, ix);
   const moving = moveDir.lengthSq() > 0.001;
   if (moving) moveDir.normalize();
 
   // speeds
   let target = 6.2;
-  p.sprint = !!keys['ShiftLeft'] || !!keys['ShiftRight'];
+  p.sprint = !!keys['ShiftLeft'] || !!keys['ShiftRight'] || stickMag > 0.92;
+  if (stickMag > 0.12 && stickMag < 0.92) target *= Math.max(0.45, stickMag / 0.92);
   if (p.sprint && moving) target = 9.2;
   if (p.skating) target = p.sprint ? 18 : 15;
   if (p.slideT > 0) target = 13;
@@ -1022,6 +1028,7 @@ function fireGun(item) {
   p.recoilYaw += rand(-1, 1) * kick.recoil * 0.3;
   p.recentFire = 0.12;
   addTrauma(kick.shake); kickFov(kick.fov);
+  haptic(kick.shake > 0.2 ? 'medium' : 'light');
   const origin = camera.position.clone();
   const baseDir = getForward(new THREE.Vector3());
   const bloom = adsDown ? item.adsBloom : item.bloom;
@@ -1123,6 +1130,7 @@ function damageBot(bot, dmg, point, crit, dir) {
   if (sp.visible) hud.damageNumber(sp.x, sp.y, dmg, kind);
   addTrauma(crit ? 0.08 : 0.04);
   if (crit) hitStop(0.035);
+  else haptic('medium');
   if (bot.hp <= 0) killBot(bot, true, dir);
 }
 
@@ -1145,7 +1153,7 @@ function killBot(bot, byPlayer, dir) {
     o.quaternion.copy(q).multiply(q0);
     if (t < 0.25) o.scale.setScalar(Math.max(0.01, t / 0.25));
   });
-  if (byPlayer && !bot.companion) { hitStop(0.06); addTrauma(0.22); kickFov(2.5); }
+  if (byPlayer && !bot.companion) { hitStop(0.06); addTrauma(0.22); kickFov(2.5); haptic('success'); }
   if (byPlayer && !bot.companion) {
     player.kills++;
     audio.elim();
@@ -1184,7 +1192,7 @@ function damagePlayer(amt) {
   let remain = amt;
   if (p.shield > 0) { const s = Math.min(p.shield, remain); p.shield -= s; remain -= s; }
   if (remain > 0) p.hp -= remain;
-  addTrauma(Math.min(0.5, amt / 60));
+  addTrauma(Math.min(0.5, amt / 60)); haptic('heavy');
   flashHurt();
   if (p.hp <= 0) { p.hp = 0; loseMatch(); }
 }
@@ -1740,6 +1748,7 @@ function loseMatch() {
   if (btn) btn.onclick = restart;
 }
 function lockPointer() {
+  if (IS_TOUCH) { lookFallback = true; return; }
   if (locked || lookFallback) return;
   const el = renderer.domElement;
   try {
@@ -1829,6 +1838,13 @@ function update(dt) {
     }
   }
 
+  if (touchTick) {
+    const it = activeItem();
+    touchTick({ running: running && !matchOver, nearChest: !!player._nearChest, ads: adsDown, skating: player.skating,
+      building: build.selected != null, melee: it && it.kind === 'melee', heal: it && it.kind === 'heal' });
+    if (fireDown && it && it.kind === 'gun') aimAssist(dt, it);
+  }
+
   // HUD
   hud.setHealth(player.hp, player.maxHp);
   hud.setShield(player.shield, player.maxShield);
@@ -1850,6 +1866,26 @@ function update(dt) {
     bots: bots.map((b) => ({ x: b.pos.x, z: b.pos.z, alive: b.alive, companion: b.companion })),
     storm: { cx: storm.cx, cz: storm.cz, radius: storm.radius, nextRadius: storm.nextRadius, ncx: storm.ncx, ncz: storm.ncz, phase: storm.phase === 'hold' && storm.idx < CONFIG.storm.length ? 'warning' : storm.phase },
   });
+}
+
+// Phones: while firing, the aim drifts gently onto a rival close to the crosshair.
+const _aa = new THREE.Vector3(), _af = new THREE.Vector3();
+function aimAssist(dt, item) {
+  const f = getForward(_af), cam = camera.position;
+  let best = null, bestDot = Math.cos(0.07);
+  for (const b of bots) {
+    if (!b.alive || b.companion) continue;
+    _aa.set(b.pos.x, b.pos.y + 1.2, b.pos.z).sub(cam);
+    const d = _aa.length(); if (d > item.range) continue;
+    const dot = f.dot(_aa.divideScalar(d));
+    if (dot > bestDot) { bestDot = dot; best = b; }
+  }
+  if (!best) return;
+  _aa.set(best.pos.x, best.pos.y + 1.2, best.pos.z).sub(cam).normalize();
+  const wantYaw = Math.atan2(-_aa.x, -_aa.z), wantPitch = Math.asin(clamp(_aa.y, -1, 1));
+  let dy = wantYaw - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  const k = 1 - Math.exp(-dt * 5);
+  player.yaw += dy * k; player.pitch += (wantPitch - player.pitch - player.recoilPitch) * k * 0.6;
 }
 
 // Smoothness: small props and decor past the fog line are hidden and only
@@ -1927,22 +1963,7 @@ function setupInput(canvas) {
   document.addEventListener('keydown', (e) => {
     keys[e.code] = true;
     if (!running || e.repeat) return;
-    switch (e.code) {
-      case 'KeyV': if (player.onGround) { player.skating = !player.skating; } break;
-      case 'KeyC': if (player.onGround && player.slideT <= 0) { player.slideT = 0.6; const f = getForward(new THREE.Vector3()); f.y = 0; f.normalize(); player.vel.x += f.x * 6; player.vel.z += f.z * 6; } break;
-      case 'Space': player.jumpBuf = 0.12; break;
-      case 'KeyQ': build.select('wall'); break;
-      case 'KeyE': if (player._nearChest) player._nearChest.open(); else build.select('ramp'); break;
-      case 'KeyR': build.select('floor'); break;
-      case 'KeyF': build.cancel(); break;
-      case 'KeyG': useHeal(); break;
-      case 'KeyB': if (player.char && player.onGround && !player.freefall) player.emote = !player.emote; break;
-      case 'Digit1': player.active = 0; build.cancel(); break;
-      case 'Digit2': player.active = 1; build.cancel(); break;
-      case 'Digit3': player.active = 2; build.cancel(); break;
-      case 'Digit4': player.active = 3; build.cancel(); break;
-      case 'Digit5': player.active = 4; build.cancel(); break;
-    }
+    handleKey(e.code);
   });
   document.addEventListener('keyup', (e) => { keys[e.code] = false; });
   window.addEventListener('resize', () => {
@@ -1951,6 +1972,40 @@ function setupInput(canvas) {
     camera.aspect = W / H; camera.updateProjectionMatrix();
     comp.setSize(W, H);
   });
+  if (IS_TOUCH) touchTick = setupTouch({
+    running: () => running && !matchOver,
+    move: (x, y) => { touchMove.x = x; touchMove.y = y; },
+    look: (dx, dy) => { player.yaw -= dx; player.pitch = clamp(player.pitch - dy, -1.3, 1.3); },
+    fire: (down) => {
+      if (down && build && build.selected) { build.place(); return; }
+      fireDown = down; if (down) fireEdge = true;
+    },
+    jump: () => { player.jumpBuf = 0.12; keys['Space'] = true; setTimeout(() => { keys['Space'] = false; }, 260); },
+    toggleAds: () => { adsDown = !adsDown; },
+    key: (code) => handleKey(code),
+    build: (kind) => { if (kind === 'edit') build.cancel(); else build.select(kind); },
+    slots: () => hud.slots.map((s) => s.el),
+    chips: () => hud.buildChips,
+  });
+}
+
+function handleKey(code) {
+  switch (code) {
+    case 'KeyV': if (player.onGround) { player.skating = !player.skating; } break;
+    case 'KeyC': if (player.onGround && player.slideT <= 0) { player.slideT = 0.6; const f = getForward(new THREE.Vector3()); f.y = 0; f.normalize(); player.vel.x += f.x * 6; player.vel.z += f.z * 6; } break;
+    case 'Space': player.jumpBuf = 0.12; break;
+    case 'KeyQ': build.select('wall'); break;
+    case 'KeyE': if (player._nearChest) player._nearChest.open(); else build.select('ramp'); break;
+    case 'KeyR': build.select('floor'); break;
+    case 'KeyF': build.cancel(); break;
+    case 'KeyG': useHeal(); break;
+    case 'KeyB': if (player.char && player.onGround && !player.freefall) player.emote = !player.emote; break;
+    case 'Digit1': player.active = 0; build.cancel(); break;
+    case 'Digit2': player.active = 1; build.cancel(); break;
+    case 'Digit3': player.active = 2; build.cancel(); break;
+    case 'Digit4': player.active = 3; build.cancel(); break;
+    case 'Digit5': player.active = 4; build.cancel(); break;
+  }
 }
 
 // ------------------------------------------------------------------- sky
