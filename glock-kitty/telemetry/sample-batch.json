@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "did": "646b60ac-2e2b-4ee1-af16-6d230673c840",
+  "sid": "b965a736-5fd4-47d6-84ad-7c9ecc198d61",
+  "sent": 1792560430210,
+  "ctx": { "device": "phone", "platform": "ios", "w": 390, "h": 844, "dpr": 3, "lang": "en-US", "v": 34 },
+  "events": [
+    { "e": "session_start", "t": 1792560424795, "seq": 1,
+      "p": { "returning": true, "best": 4120, "streak": 3, "owned": 1, "challenge": false, "ref": "t.co", "reduced_motion": false, "cat": "yellow", "skin": "chrome" } },
+    { "e": "run_start", "t": 1792560427011, "seq": 2, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "daily": false, "diff": "normal", "cat": "yellow", "skin": "chrome", "lives": 9, "picks": "", "pass": false, "streak": 3, "mod": "" } },
+    { "e": "wave_start", "t": 1792560427012, "seq": 3, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "wave": 1, "city": "San Francisco", "boss": "", "lives": 9, "cash": 0, "gun": "glock", "picks": 0, "budget": 10 } },
+    { "e": "player_hit", "t": 1792560433480, "seq": 4, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "wave": 1, "lives": 8, "x": 350, "y": 400, "city": "San Francisco", "boss": false } },
+    { "e": "wave_clear", "t": 1792560441900, "seq": 5, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "wave": 1, "secs": 15, "lives": 8, "cash": 130, "kills": 10, "score": 620, "city": "San Francisco" } },
+    { "e": "shop_open", "t": 1792560443700, "seq": 6, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "wave": 1, "cash": 130, "offer": "speed,reload,rate,kicks", "prices": "40,40,40,50" } },
+    { "e": "upgrade_buy", "t": 1792560446120, "seq": 7, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "id": "kicks", "cost": 50, "cash_after": 80, "wave": 1, "level": 1, "drip": true } },
+    { "e": "ride_end", "t": 1792560528995, "seq": 8, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "kind": "bike", "road": "Bay Bridge", "wave": 5, "spotted": 0, "kills": 0, "unseen": true, "bonus": 1600, "pay": 70, "lives": 8, "boosts": 4 } },
+    { "e": "run_end", "t": 1792560630210, "seq": 9, "run": "369bfa63-04db-4561-b8dd-a38839c546a2",
+      "p": { "score": 5310, "wave": 7, "kills": 88, "secs": 203, "daily": false, "diff": "normal", "city": "Oakland", "in_ride": false,
+             "cash_left": 60, "cash_earned": 910, "cash_spent": 850, "hits": 9, "gun": "glock", "picks": "kicks,speed,rate",
+             "kills_by": "{\"cam\":61,\"drone\":19,\"cop\":8}", "new_best": true, "beat_challenge": false, "checkpoint": false } }
+  ]
+}

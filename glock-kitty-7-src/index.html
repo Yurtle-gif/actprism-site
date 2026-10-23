@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Glock Kitty 7</title>
+<meta name="description" content="Glock Kitty 7: a third-person battle royale on Neo-Tokyo 85 Island. Drop in, build, grind the Shuto expressway, outlast the Bass Storm.">
+<meta name="theme-color" content="#07020f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:ital,wght@0,600;0,800;1,800&display=swap" rel="stylesheet">
+<style>
+  :root { --g: 10px; }
+  html, body { margin: 0; height: 100%; background: #07020f; overflow: hidden; }
+  * { -webkit-user-select: none; user-select: none; }
+  #game { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+  #overlay { position: fixed; inset: 0; pointer-events: none; font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; color: #fff; }
+  #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .12s;
+          background: radial-gradient(ellipse at center, transparent 40%, rgba(255,0,60,0.55) 100%); }
+  #storm-vig { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s;
+               background: radial-gradient(ellipse at center, transparent 30%, rgba(150,30,220,0.55) 100%); }
+
+  /* crosshair */
+  .gk-cross { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; }
+  .gk-cross i { position: absolute; background: #eafcff; box-shadow: 0 0 4px #5fe0ff; }
+  .gk-cross-t, .gk-cross-b { left: -1px; width: 2px; height: 9px; }
+  .gk-cross-l, .gk-cross-r { top: -1px; height: 2px; width: 9px; }
+  .gk-cross-t { bottom: var(--g); } .gk-cross-b { top: var(--g); }
+  .gk-cross-l { right: var(--g); } .gk-cross-r { left: var(--g); }
+  .gk-hitmark { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%,-50%) rotate(45deg); opacity: 0; }
+  .gk-hitmark.show { opacity: 1; }
+  .gk-hitmark::before, .gk-hitmark::after { content:''; position:absolute; background:#fff; }
+  .gk-hitmark::before { left:50%; top:0; width:2px; height:100%; margin-left:-1px; }
+  .gk-hitmark::after { top:50%; left:0; height:2px; width:100%; margin-top:-1px; }
+  .gk-hitmark.crit::before, .gk-hitmark.crit::after { background:#ffd23d; box-shadow:0 0 6px #ffb21f; }
+
+  /* HUD type: a heavy condensed face like Fortnite's, with system fallbacks */
+  #overlay { font-family: 'Barlow Condensed', 'Arial Narrow', 'Trebuchet MS', sans-serif; }
+  .gk-vnum, .gk-mats b, .gk-statbox b, .gk-slot-ammo, .gk-banner, .gk-title, .gk-victory, .gk-defeat, .gk-start-btn { font-family: 'Anton', Impact, 'Arial Black', sans-serif; font-weight: 400; }
+
+  /* vitals */
+  .gk-vitals { position: absolute; left: 20px; bottom: 22px; width: 330px; }
+  .gk-vrow { display: flex; align-items: center; gap: 8px; margin-top: 6px; transition: opacity .2s; }
+  .gk-vbadge { display: flex; align-items: center; gap: 4px; min-width: 64px; justify-content: flex-end; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0,0,0,.8); }
+  .gk-vicon { font-style: normal; font-size: 15px; }
+  .gk-vnum { font-size: 26px; line-height: 1; letter-spacing: .5px; }
+  .gk-bar-wrap { position: relative; flex: 1; height: 16px; background: rgba(6,3,14,0.72); border-radius: 3px;
+                 box-shadow: 0 0 0 2px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.45); overflow: hidden; }
+  .gk-vhp .gk-bar-wrap { height: 22px; }
+  .gk-bar { position: absolute; inset: 0; width: 100%; transition: width .15s ease-out; }
+  .gk-bar-seg { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(25% - 2px), rgba(0,0,0,.55) calc(25% - 2px) 25%); }
+  .gk-vhp .gk-bar { background: linear-gradient(180deg, #a6ff6a 0%, #4fd62a 55%, #36b51c 100%); }
+  .gk-vhp .gk-vicon { color: #7dff4a; }
+  .gk-vhp.low .gk-bar { background: linear-gradient(180deg, #ff8a7a, #ff3b3b); animation: lowhp .7s infinite alternate; }
+  @keyframes lowhp { to { filter: brightness(1.5); } }
+  .gk-vshield .gk-bar { background: linear-gradient(180deg, #9fe6ff 0%, #3aa6ff 60%, #2a7fe0 100%); }
+  .gk-vshield .gk-vicon { color: #6cc8ff; }
+  .gk-vshield.empty { opacity: .45; }
+
+  /* bottom-right: tools row + hotbar */
+  .gk-right { position: absolute; right: 20px; bottom: 22px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .gk-tools { display: flex; align-items: center; gap: 10px; }
+  .gk-build { display: flex; gap: 5px; }
+  .gk-chip { width: 44px; padding: 3px 0 2px; text-align: center; background: rgba(6,3,14,0.6); border-radius: 4px; opacity: .6;
+             box-shadow: 0 0 0 1px rgba(255,255,255,0.18); }
+  .gk-chip.on { opacity: 1; background: rgba(0,170,255,0.35); box-shadow: 0 0 0 2px #fff, 0 0 12px #00c8ff; }
+  .gk-chip-key { font-weight: 800; color: #fff; font-size: 15px; line-height: 1; }
+  .gk-chip-sub { font-size: 10px; color: #cfe0ec; letter-spacing: .5px; text-transform: uppercase; }
+  .gk-mats { display: flex; align-items: center; gap: 4px; background: rgba(6,3,14,0.6); padding: 3px 9px; border-radius: 4px;
+             box-shadow: 0 0 0 1px rgba(255,255,255,0.18); }
+  .gk-mats i { font-style: normal; font-size: 15px; }
+  .gk-mats b { font-size: 20px; color: #fff; }
+
+  /* hotbar: square loot tiles in rarity colors */
+  .gk-hotbar { display: flex; gap: 6px; align-items: flex-end; }
+  .gk-slot { --rc: #8f9aa8; position: relative; width: 66px; height: 66px; border-radius: 6px; overflow: hidden;
+             background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 85%, #fff 15%) 0%, var(--rc) 45%, color-mix(in srgb, var(--rc) 55%, #000) 100%);
+             box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.5); transition: transform .1s, box-shadow .1s; }
+  .gk-slot::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.35), transparent 55%); }
+  .gk-slot.empty { background: rgba(6,3,14,0.55); box-shadow: 0 0 0 2px rgba(255,255,255,0.12); }
+  .gk-slot.empty::after { display: none; }
+  .gk-slot.active { transform: translateY(-8px) scale(1.08); box-shadow: 0 0 0 3px #fff, 0 0 18px var(--rc), 0 6px 14px rgba(0,0,0,.6); }
+  .gk-slot-num { position: absolute; left: 5px; top: 3px; font-size: 12px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px #000; z-index: 1; }
+  .gk-slot-ammo { position: absolute; right: 5px; top: 3px; font-size: 13px; color: #fff; text-shadow: 0 1px 2px #000; z-index: 1; }
+  .gk-slot-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 3px; font-size: 13px; font-weight: 800; text-align: center;
+                  line-height: 1.05; color: #fff; text-transform: uppercase; background: rgba(0,0,0,0.45); z-index: 1; }
+
+  /* top-right: minimap + stats */
+  .gk-topright { position: absolute; right: 20px; top: 16px; width: 168px; }
+  .gk-mini { display: block; width: 168px; height: 168px; border-radius: 14px; box-shadow: 0 4px 18px rgba(0,0,0,0.55); }
+  .gk-stats { display: flex; gap: 6px; margin-top: 6px; }
+  .gk-statbox { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(6,3,14,0.65);
+                border-radius: 4px; padding: 2px 0; box-shadow: 0 0 0 1px rgba(255,255,255,0.15); }
+  .gk-statbox i { font-style: normal; font-size: 13px; }
+  .gk-statbox b { font-size: 20px; color: #fff; }
+
+  /* killfeed */
+  .gk-feed { position: absolute; left: 22px; top: 18px; width: 420px; }
+  .gk-feed-line { background: rgba(8,4,18,0.6); border-left: 3px solid #ff5fd0; padding: 4px 8px; margin-bottom: 5px;
+                  font-size: 13px; border-radius: 3px; transition: opacity .6s; }
+  .gk-feed-line .wn { color: #ffc23d; }
+
+  /* interact + banners + reload */
+  .gk-interact { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); background: rgba(8,4,18,0.7);
+                 padding: 7px 16px; border-radius: 6px; border: 1px solid #5fe0ff; font-size: 15px; }
+  .gk-interact b { color: #00f0ff; background: rgba(0,240,255,0.15); padding: 1px 7px; border-radius: 4px; }
+  .gk-banner { --bc: #ff5fd0; position: absolute; left: 50%; top: 18%; transform: translateX(-50%); font-size: 30px; letter-spacing: 1px;
+               white-space: nowrap; font-style: italic; }
+  .gk-banner span { display: inline-block; padding: 4px 22px; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.6);
+                    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bc) 75%, #000) 15%, var(--bc) 50%, color-mix(in srgb, var(--bc) 75%, #000) 85%, transparent);
+                    transform: skewX(-10deg); }
+  .gk-banner.in span { animation: bannerIn .35s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes bannerIn { from { opacity: 0; transform: skewX(-10deg) translateX(-40px) scale(.9); } }
+  .gk-reload { position: absolute; left: 50%; top: 56%; transform: translateX(-50%); font-size: 13px; letter-spacing: 2px;
+               color: #ffc23d; background: rgba(8,4,18,0.7); padding: 4px 12px; border-radius: 5px; }
+  .gk-reload span { display: inline-block; height: 4px; background: #ffc23d; margin-left: 8px; vertical-align: middle; border-radius: 2px; transition: width .05s; }
+
+  /* floating damage numbers */
+  .gk-dmg { position: absolute; transform: translate(-50%, 0); font-weight: bold; font-size: 22px; pointer-events: none;
+            transition: transform .72s cubic-bezier(.2,.7,.3,1), opacity .72s; text-shadow: 0 2px 3px #000, 0 0 4px #000; }
+  .gk-dmg.health { color: #ffffff; }
+  .gk-dmg.shield { color: #5fb8ff; }
+  .gk-dmg.crit   { color: #ffd23d; font-size: 30px; text-shadow: 0 2px 4px #000, 0 0 10px #ffb21f; }
+  .gk-dmg { font-family: 'Anton', Impact, sans-serif; font-weight: 400; }
+
+  /* phones / small windows: shrink the HUD so nothing overlaps */
+  @media (max-width: 820px), (max-height: 520px) {
+    .gk-vitals { width: 230px; left: 12px; bottom: 12px; }
+    .gk-vnum { font-size: 20px; } .gk-vbadge { min-width: 50px; }
+    .gk-right { right: 12px; bottom: 12px; transform: scale(.78); transform-origin: right bottom; }
+    .gk-topright { right: 12px; top: 10px; transform: scale(.72); transform-origin: right top; }
+    .gk-feed { width: 260px; font-size: 11px; }
+    .gk-banner { font-size: 20px; }
+  }
+  @media (max-width: 560px) {
+    .gk-chip-sub { display: none; }
+    .gk-vitals { width: 170px; }
+    .gk-right { transform: scale(.66); }
+  }
+
+  /* phone touch controls (body.touch is set when the device has a touch screen) */
+  body.touch { touch-action: none; -webkit-touch-callout: none; }
+  #gk-touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
+  .gk-stick { position: absolute; display: none; width: 124px; height: 124px; margin: -62px 0 0 -62px; border-radius: 50%;
+              background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 2px rgba(255,255,255,.35); }
+  .gk-knob { position: absolute; left: 37px; top: 37px; width: 50px; height: 50px; border-radius: 50%;
+             background: rgba(255,255,255,.55); box-shadow: 0 0 12px rgba(95,224,255,.6); }
+  .gk-tb { position: absolute; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+           width: 58px; height: 58px; background: rgba(6,3,14,.45); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55);
+           font-family: 'Anton', Impact, sans-serif; font-size: 13px; letter-spacing: .5px; color: #fff; text-shadow: 0 1px 2px #000; }
+  .gk-tb.on { background: rgba(95,224,255,.45); box-shadow: inset 0 0 0 2px #fff, 0 0 14px #5fe0ff; }
+  .gk-tb-fire { width: 86px; height: 86px; font-size: 17px; right: calc(28px + env(safe-area-inset-right)); bottom: 150px;
+                background: rgba(255,59,90,.35); box-shadow: inset 0 0 0 3px rgba(255,255,255,.75); }
+  .gk-tb-fire.on { background: rgba(255,59,90,.7); }
+  .gk-tb-jump { right: calc(130px + env(safe-area-inset-right)); bottom: 132px; }
+  .gk-tb-ads { right: calc(122px + env(safe-area-inset-right)); bottom: 206px; width: 50px; height: 50px; font-size: 12px; }
+  .gk-tb-crouch { right: calc(196px + env(safe-area-inset-right)); bottom: 168px; width: 50px; height: 50px; font-size: 12px; }
+  .gk-tb-skate { right: calc(190px + env(safe-area-inset-right)); bottom: 86px; width: 44px; height: 44px; font-size: 20px; }
+  .gk-tb-use { left: 50%; top: 58%; transform: translateX(-50%); width: 96px; height: 40px; border-radius: 20px;
+               background: rgba(182,255,58,.35); }
+  body.touch .gk-vitals { left: 50%; transform: translateX(-50%); bottom: auto; top: 6px; width: 200px; }
+  body.touch .gk-banner { top: 26%; }
+  body.touch .gk-right { right: calc(10px + env(safe-area-inset-right)); bottom: 8px; transform: scale(.72); }
+  body.touch .gk-chip-key { display: none; }
+  body.touch .gk-chip-sub { display: block !important; font-size: 13px; padding: 4px 0; color: #fff; }
+  body.touch .gk-chip, body.touch .gk-slot { pointer-events: auto; }
+  body.touch .gk-topright { right: calc(12px + env(safe-area-inset-right)); top: 8px; transform: scale(.6); }
+  body.touch .gk-feed { display: none; }
+  .gk-rotate { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center;
+               gap: 12px; background: #07020f; color: #fff; font-family: 'Anton', Impact, sans-serif; font-size: 20px; pointer-events: auto; }
+  .gk-rotate div { font-size: 64px; color: #5fe0ff; }
+
+  .gk-quality { margin-top: 18px; display: flex; gap: 6px; align-items: center; font-size: 13px; letter-spacing: 1px; color: #cfe0ec; pointer-events: auto; }
+  .gk-quality span { padding: 6px 12px; border-radius: 4px; background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); cursor: pointer; color: #fff; font-family: 'Anton', Impact, sans-serif; }
+  .gk-quality span.on { background: linear-gradient(90deg,#5fe0ff,#b6ff3a); color: #07020f; box-shadow: none; }
+
+  /* full-screen screens */
+  .gk-screen { position: absolute; inset: 0; pointer-events: auto; display: flex; flex-direction: column;
+               align-items: center; justify-content: center; text-align: center;
+               background: radial-gradient(ellipse at center, rgba(40,10,70,0.6), rgba(7,2,15,0.94)); cursor: pointer; }
+  .gk-title { font-size: clamp(44px, 11vw, 96px); font-style: italic; letter-spacing: 4px; color: #fff;
+              text-shadow: 0 0 20px #ff5fd0, 0 6px 0 #b24bff, 0 0 60px #5fe0ff; }
+  .gk-title span { color: #ffc23d; text-shadow: 0 0 20px #ffc23d; }
+  .gk-sub { font-size: 20px; letter-spacing: 6px; color: #9ad7ff; margin-top: 6px; }
+  .gk-start-btn { margin-top: 36px; font-size: 22px; font-weight: bold; color: #07020f; background: linear-gradient(90deg,#5fe0ff,#b6ff3a);
+                  padding: 14px 34px; border-radius: 10px; box-shadow: 0 0 24px #5fe0ff88; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.06);} }
+  .gk-keys { margin-top: 30px; font-size: 14px; color: #c7d2dc; line-height: 2; }
+  .gk-keys b { color: #ffc23d; background: rgba(255,255,255,0.08); padding: 1px 7px; border-radius: 4px; }
+  /* short screens (phones sideways): keep the title, button and both pickers on screen */
+  @media (max-height: 520px) {
+    .gk-title { font-size: clamp(36px, 8vw, 64px); letter-spacing: 2px; }
+    .gk-sub { font-size: 14px; letter-spacing: 4px; }
+    .gk-start-btn { margin-top: 14px; }
+    .gk-keys { margin-top: 10px; line-height: 1.6; }
+    .gk-quality { margin-top: 8px; }
+  }
+  .gk-victory { font-size: clamp(36px, 9vw, 76px); color: #ffc23d; text-shadow: 0 0 26px #ffb21f, 0 6px 0 #b24bff; }
+  .gk-defeat { font-size: clamp(36px, 9vw, 70px); color: #ff5b6e; text-shadow: 0 0 26px #ff2a55; }
+  .gk-stat { margin-top: 14px; font-size: 18px; color: #e6eef5; }
+  .gk-stat b { color: #b6ff3a; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hurt"></div>
+<div id="storm-vig"></div>
+<div id="overlay"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
