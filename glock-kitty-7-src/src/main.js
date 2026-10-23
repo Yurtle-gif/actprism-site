@@ -763,7 +763,7 @@ function animatePlayerChar(p, dt, speed, isGun, isMelee) {
 
 // ------------------------------------------------------------------- Player
 // playable characters (start-screen picker); the choice is remembered
-const CHARACTERS = { hero: 'HELLO KITTY BOY', rohni: 'ROHNi' };
+const CHARACTERS = { hero: 'GLOCK KITTY', rohni: 'ROHNi' };
 let playerChar = (() => { try { const c = localStorage.getItem('gk7-char'); return CHARACTERS[c] ? c : 'hero'; } catch (e) { return 'hero'; } })();
 
 function createPlayer() {
