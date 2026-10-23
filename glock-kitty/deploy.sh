@@ -4,7 +4,7 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/Yurtle-gif/actprism-site/<commit>/glock-kitty/deploy.sh)
 # FK pins the Flock Kitty build, GK the Glock Kitty 7 page; both are bumped with each new version.
 set -e
-FK=100834267fa90979b77ad36514894d399c3c3d60
+FK=f21f44ee6f19d8e2982848c32b18cc508dac794d
 GK=fe1b777b36aa404bbbab172dc9f0ee07d467a4c0
 R=https://raw.githubusercontent.com/Yurtle-gif/actprism-site/$FK
 G=https://raw.githubusercontent.com/Yurtle-gif/actprism-site/$GK
