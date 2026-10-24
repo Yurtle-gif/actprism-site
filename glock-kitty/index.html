@@ -46,7 +46,6 @@ body{font:500 17px/1.4 var(--f-body);-webkit-font-smoothing:antialiased;touch-ac
 .daily,.shop .item,.card,.stats,.board,.keys{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .daily,.shop .item,.card,.stats{border-color:rgba(255,209,102,.28)}
 .hero{position:fixed;right:max(2vw,env(safe-area-inset-right,0px));bottom:-2vh;height:min(76vh,640px);width:auto;pointer-events:none;z-index:0;filter:drop-shadow(0 26px 34px rgba(0,0,0,.65)) drop-shadow(0 0 28px rgba(255,94,196,.25))}
-@media (max-width:1180px),(max-height:560px){.hero{display:none}}
 .linkish{appearance:none;border:0;background:none;padding:0;font:inherit;color:var(--menace);text-decoration:underline;cursor:pointer}
 .legal{display:grid;gap:14px;max-width:62ch;font-size:16px;color:var(--ink-dim)}
 .legal h3{margin:14px 0 0;font:400 22px/1.1 var(--f-display);color:var(--ink)}
@@ -158,6 +157,70 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
 #tJam.empty{opacity:.4}
 #tPause{left:50%;transform:translateX(-50%);bottom:max(14px,env(safe-area-inset-bottom,0px));width:54px;height:54px;background:rgba(22,15,41,.6);font-size:16px}
 @media (prefers-reduced-motion: reduce){.btn,.card{transition:none}}
+/* start menu: Play up front, the rest in drawers */
+#title .sheet{max-width:1080px;display:block}
+#title .main{display:flex;flex-direction:column;align-items:flex-start;gap:26px;max-width:430px}
+#title .brand{display:grid;gap:14px}
+#title .logo{font-size:clamp(64px,9vw,124px)}
+#title .actions{display:grid;gap:14px;width:min(100%,360px);justify-items:stretch}
+#title .best{justify-self:start}
+#title .stage{width:0;height:0}
+.playbtn{font-size:32px;padding:24px 26px 20px;border-radius:12px;letter-spacing:.04em}
+.dailystrip{appearance:none;display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:11px 14px;border:1px solid var(--menace);border-radius:10px;background:rgba(16,10,30,.6);color:var(--menace);font:700 12px/1.25 var(--f-body);letter-spacing:.12em;text-transform:uppercase;text-align:left;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.dailystrip .go{flex:none;color:var(--ink);font:400 13px/1 var(--f-display);letter-spacing:.02em;text-transform:none}
+.dailystrip .go::after{content:" \203A"}
+.dailystrip:hover{background:rgba(16,10,30,.8)}
+.dailystrip:focus-visible{outline:3px solid var(--menace);outline-offset:3px}
+.dailystrip:disabled{opacity:.5;cursor:default}
+.mainrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.mbtn{display:grid;justify-items:center;gap:7px;padding:13px 4px 11px;font-size:13px}
+.mbtn svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mbtn svg circle{fill:currentColor;stroke:none}
+.mbtn[data-drawer="drawNet"] svg circle{fill:none;stroke:currentColor}
+.mbtn[aria-expanded="true"]{box-shadow:inset 0 0 0 2px var(--kitty),0 6px 18px rgba(0,0,0,.3)}
+.drawer{position:fixed;inset:0;z-index:6;display:flex;align-items:center;justify-content:flex-start;background:rgba(8,4,18,.4);
+  padding-block:max(24px,env(safe-area-inset-top,0px)) max(24px,env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px),calc((100vw - 1080px) / 2));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.drawer-in{box-sizing:border-box;display:grid;gap:18px;align-content:start;width:min(100%,600px);max-height:100%;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;padding:20px 22px 24px;border:1px solid rgba(255,209,102,.3);border-radius:14px;background:rgba(14,8,28,.94);box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.drawer-in>*{min-width:0}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.drawer-head h2{margin:0;font:400 26px/1 var(--f-display);color:var(--brass)}
+.drawer-x{appearance:none;border:0;width:44px;height:44px;margin:-8px -10px -8px 0;border-radius:50%;background:none;color:var(--ink);font:400 30px/1 var(--f-body);cursor:pointer}
+.drawer-x:hover{background:rgba(246,239,255,.08)}
+.drawer-x:focus-visible{outline:3px solid var(--menace);outline-offset:1px}
+.drawer .row{gap:10px}
+.drawer .btn.ghost{font-size:14px;padding:12px 14px 10px}
+.drawer .best{min-width:4.6em}
+.drawer .keys{border-top:1px solid var(--line);padding-top:16px}
+@media (max-width:760px) and (min-aspect-ratio:1/1),(max-height:560px){
+  #title .main{gap:14px}
+  #title .brand{gap:8px}
+  #title .logo{font-size:min(13vw,19vh)}
+  #title .eyebrow{font-size:12px}
+  #title .actions{gap:9px;width:min(100%,360px)}
+  .playbtn{font-size:24px;padding:15px 20px 12px}
+  .dailystrip{padding:8px 12px}
+  .mbtn{gap:4px;padding:8px 2px 7px;font-size:11px}
+  .mbtn svg{width:18px;height:18px}
+  .hero{height:min(94vh,640px)}
+}
+@media (max-width:760px) and (max-aspect-ratio:1/1){
+  #title .sheet{margin:0 auto}
+  #title .main{align-items:center;text-align:center;max-width:none;width:100%;gap:12px;
+    min-height:calc(100dvh - max(24px,env(safe-area-inset-top,0px)) - max(24px,env(safe-area-inset-bottom,0px)))}
+  #title .brand{justify-items:center;gap:10px}
+  #title .logo{font-size:clamp(54px,17vw,92px)}
+  #title .eyebrow{font-size:12px;letter-spacing:.12em}
+  #title .stage{flex:1 1 0;width:100%;min-height:150px;height:auto;position:relative}
+  .hero{position:absolute;inset:0;margin:auto;height:100%;width:auto;max-width:100%;object-fit:contain;object-position:50% 100%}
+  #title .actions{width:min(100%,420px);justify-items:stretch}
+  #title .best{justify-self:center}
+  .drawer{align-items:flex-end;padding:0;padding-top:max(80px,env(safe-area-inset-top,0px))}
+  .drawer-in{width:100%;max-height:100%;border-radius:16px 16px 0 0;border-bottom:0;padding:18px max(16px,env(safe-area-inset-right,0px)) max(24px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+  .drawer .netor{display:none}
+  #drawLook{background:rgba(8,4,18,.2)}
+  #drawLook .drawer-in{max-height:62%}
+}
 </style>
 </head><body>
 <canvas id="game" aria-label="Flock Kitty game area"></canvas>
@@ -172,92 +235,114 @@ a.btn{display:inline-block;text-decoration:none;line-height:1}
 </div>
 
 <section id="title" class="overlay" aria-label="Title screen">
-  <img class="hero" id="heroImg" alt="" decoding="async">
   <div class="sheet">
-    <p class="eyebrow">One pink Glock 17 · Nine lives · Zero chill</p>
-    <h1 class="logo"><span>Flock</span>Kitty</h1>
-    <p class="lede">Mini Flock cams on poles have taken over the block, and every one of them is watching. Hold the street, drop the boss, then ride out on a dirtbike or in the getaway car and slip past the cams on the road.</p>
-    <div class="row">
-      <button id="startBtn" class="btn" type="button">Play</button>
-      <button class="btn ghost mute" type="button">Sound: on</button>
-      <span class="best">Best<b id="bestTitle">0</b></span>
-    </div>
-    <div class="row" role="group" aria-label="Difficulty">
-      <span class="best">Difficulty</span>
-      <button class="btn ghost seg" data-diff="easy" type="button" aria-pressed="false">Easy</button>
-      <button class="btn ghost seg" data-diff="normal" type="button" aria-pressed="true">Normal</button>
-      <button class="btn ghost seg" data-diff="hard" type="button" aria-pressed="false">Hard</button>
-    </div>
-    <p class="diffnote" id="diffNote"></p>
-    <div class="row" role="group" aria-label="Cat">
-      <span class="best">Cat</span>
-      <button class="btn ghost seg" data-cat="yellow" type="button" aria-pressed="true">Mango · yellow</button>
-      <button class="btn ghost seg" data-cat="white" type="button" aria-pressed="false">Snow · white</button>
-      <button class="btn ghost seg" data-cat="fight" type="button" aria-pressed="false">Fight Night · pink</button>
-      <button class="btn ghost seg" data-cat="rohni" type="button" aria-pressed="false">ROHNi · red</button>
-      <button class="btn ghost seg" data-cat="glock4" type="button" aria-pressed="false">Glock 4 · baby pink</button>
-    </div>
-    <div class="row" role="group" aria-label="Fit">
-      <span class="best">Fit</span>
-      <button class="btn ghost seg" data-fit="og" type="button" aria-pressed="true">OG Fit</button>
-      <button class="btn ghost seg" data-fit="street" type="button" aria-pressed="false" title="Mango only">Street</button>
-      <button class="btn ghost seg" data-fit="y2k" type="button" aria-pressed="false">Y2K Pink</button>
-      <button class="btn ghost seg" data-fit="cyber" type="button" aria-pressed="false">Cyber Tee</button>
-      <button class="btn ghost seg" data-fit="boss" type="button" aria-pressed="false">Boss Fit</button>
-    </div>
-    <div class="row" role="group" aria-label="Glock slide" id="skinRow"><span class="best">Slide</span></div>
-    <div class="row" role="group" aria-label="Gun" id="gunRow"><span class="best">Gun</span></div>
-    <p class="callout" id="challengeLine" hidden></p>
-    <div class="daily">
-      <div><p class="eyebrow" id="dailyEye">Daily challenge</p><p class="note" id="dailyNote"></p></div>
-      <button id="dailyBtn" class="btn" type="button">Play today's run</button>
-    </div>
-    <p class="streak" id="streakLine"></p>
-    <div class="netbox" id="netBox">
-      <p class="eyebrow">Play online · co-op for up to 4</p>
-      <div class="netrow" id="netIdle">
-        <input id="netName" maxlength="12" autocomplete="off" spellcheck="false" placeholder="Your name" aria-label="Your name">
-        <button id="netHost" class="btn ghost" type="button">Host a room</button>
-        <span class="netor">or</span>
-        <input id="netCode" class="code" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code" aria-label="Room code">
-        <button id="netJoin" class="btn ghost" type="button">Join</button>
+    <div class="main">
+      <div class="brand">
+        <h1 class="logo"><span>Flock</span>Kitty</h1>
+        <p class="eyebrow">One pink Glock 17 · Nine lives · Zero chill</p>
       </div>
-      <div id="netRoom" hidden>
-        <p class="netcode">Room<b id="netCodeShow"></b></p>
-        <ul class="roster" id="netRoster"></ul>
-        <div class="row"><button id="netLeave" class="btn ghost" type="button">Leave room</button></div>
+      <div class="stage"><img class="hero" id="heroImg" alt="" decoding="async"></div>
+      <div class="actions">
+        <p class="callout" id="challengeLine" hidden></p>
+        <button id="startBtn" class="btn playbtn" type="button">Play</button>
+        <button id="dailyBtn" class="dailystrip" type="button"><span id="dailyEye">Daily challenge</span><span class="go">Play today's run</span></button>
+        <div class="mainrow">
+          <button class="btn ghost mbtn" type="button" data-drawer="drawLook" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l3.5 4.2h7L19 3v9.5a7 7 0 0 1-14 0z"/><circle cx="9.3" cy="12" r="1.1"/><circle cx="14.7" cy="12" r="1.1"/></svg>Character</button>
+          <button class="btn ghost mbtn" type="button" data-drawer="drawNet" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="8" r="3.2"/><circle cx="16.5" cy="9" r="2.6"/><path d="M2.5 20c.6-3.6 3-5.6 6-5.6s5.4 2 6 5.6M14 14.6c.8-.4 1.6-.6 2.5-.6 2.4 0 4.3 1.6 4.9 4.6"/></svg>Co-op</button>
+          <button class="btn ghost mbtn" type="button" data-drawer="drawMore" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>More</button>
+        </div>
+        <span class="best">Best<b id="bestTitle">0</b></span>
       </div>
-      <p class="note" id="netNote"></p>
     </div>
-    <p class="teaser"><b>Coming soon</b><span id="teaserTxt"></span></p>
-    <div class="row">
-      <button id="shopBtn" class="btn ghost" type="button" aria-expanded="false">Shop</button>
-      <button id="boardBtn" class="btn ghost" type="button" aria-expanded="false">Top scores</button>
-      <button id="privacyBtn" class="btn ghost" type="button">Privacy</button>
+  </div>
+  <div class="drawer" id="drawLook" role="dialog" aria-label="Character" hidden>
+    <div class="drawer-in">
+      <div class="drawer-head"><h2>Character</h2><button class="drawer-x" type="button" aria-label="Close">×</button></div>
+      <div class="row" role="group" aria-label="Cat">
+        <span class="best">Cat</span>
+        <button class="btn ghost seg" data-cat="yellow" type="button" aria-pressed="true">Mango · yellow</button>
+        <button class="btn ghost seg" data-cat="white" type="button" aria-pressed="false">Snow · white</button>
+        <button class="btn ghost seg" data-cat="fight" type="button" aria-pressed="false">Fight Night · pink</button>
+        <button class="btn ghost seg" data-cat="rohni" type="button" aria-pressed="false">ROHNi · red</button>
+        <button class="btn ghost seg" data-cat="glock4" type="button" aria-pressed="false">Glock 4 · baby pink</button>
+      </div>
+      <div class="row" role="group" aria-label="Fit">
+        <span class="best">Fit</span>
+        <button class="btn ghost seg" data-fit="og" type="button" aria-pressed="true">OG Fit</button>
+        <button class="btn ghost seg" data-fit="street" type="button" aria-pressed="false" title="Mango only">Street</button>
+        <button class="btn ghost seg" data-fit="y2k" type="button" aria-pressed="false">Y2K Pink</button>
+        <button class="btn ghost seg" data-fit="cyber" type="button" aria-pressed="false">Cyber Tee</button>
+        <button class="btn ghost seg" data-fit="boss" type="button" aria-pressed="false">Boss Fit</button>
+      </div>
+      <div class="row" role="group" aria-label="Glock slide" id="skinRow"><span class="best">Slide</span></div>
+      <div class="row" role="group" aria-label="Gun" id="gunRow"><span class="best">Gun</span></div>
+      <p class="streak" id="streakLine"></p>
+      <div class="row"><button id="shopBtn" class="btn ghost" type="button" aria-expanded="false">Shop</button></div>
+      <div id="shopTitle" hidden>
+        <div class="shop" id="shopList"></div>
+        <p class="note" id="shopNote">Paid with Stripe. What you buy is saved on this device.</p>
+        <p class="note">Payments go through Stripe. The game never sees your card. <button class="linkish" type="button" id="privacyLink">Privacy policy</button></p>
+      </div>
     </div>
-    <div id="shopTitle" hidden>
-      <div class="shop" id="shopList"></div>
-      <p class="note" id="shopNote">Paid with Stripe. What you buy is saved on this device.</p>
-      <p class="note">Payments go through Stripe. The game never sees your card. <button class="linkish" type="button" id="privacyLink">Privacy policy</button></p>
+  </div>
+  <div class="drawer" id="drawNet" role="dialog" aria-label="Co-op" hidden>
+    <div class="drawer-in">
+      <div class="drawer-head"><h2>Co-op</h2><button class="drawer-x" type="button" aria-label="Close">×</button></div>
+      <div class="netbox" id="netBox">
+        <p class="eyebrow">Play online · co-op for up to 4</p>
+        <div class="netrow" id="netIdle">
+          <input id="netName" maxlength="12" autocomplete="off" spellcheck="false" placeholder="Your name" aria-label="Your name">
+          <button id="netHost" class="btn ghost" type="button">Host a room</button>
+          <span class="netor">or</span>
+          <input id="netCode" class="code" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code" aria-label="Room code">
+          <button id="netJoin" class="btn ghost" type="button">Join</button>
+        </div>
+        <div id="netRoom" hidden>
+          <p class="netcode">Room<b id="netCodeShow"></b></p>
+          <ul class="roster" id="netRoster"></ul>
+          <div class="row"><button id="netLeave" class="btn ghost" type="button">Leave room</button></div>
+        </div>
+        <p class="note" id="netNote"></p>
+      </div>
     </div>
-    <ol class="board" id="boardTitle" hidden></ol>
-    <div class="keys desk-only">
-      <div><kbd>WASD</kbd>Move</div>
-      <div><kbd>Mouse</kbd>Aim</div>
-      <div><kbd>Click</kbd>Shoot (hold)</div>
-      <div><kbd>R</kbd>Reload</div>
-      <div><kbd>Space</kbd>Pounce through danger</div>
-      <div><kbd>Q</kbd>Scammer Jammers: wipe the screen</div>
-      <div><kbd>Esc</kbd>Pause</div>
+  </div>
+  <div class="drawer" id="drawMore" role="dialog" aria-label="More" hidden>
+    <div class="drawer-in">
+      <div class="drawer-head"><h2>More</h2><button class="drawer-x" type="button" aria-label="Close">×</button></div>
+      <div class="row" role="group" aria-label="Difficulty">
+        <span class="best">Difficulty</span>
+        <button class="btn ghost seg" data-diff="easy" type="button" aria-pressed="false">Easy</button>
+        <button class="btn ghost seg" data-diff="normal" type="button" aria-pressed="true">Normal</button>
+        <button class="btn ghost seg" data-diff="hard" type="button" aria-pressed="false">Hard</button>
+      </div>
+      <p class="diffnote" id="diffNote"></p>
+      <div class="row">
+        <button class="btn ghost mute" type="button">Sound: on</button>
+        <button id="boardBtn" class="btn ghost" type="button" aria-expanded="false">Top scores</button>
+        <button id="privacyBtn" class="btn ghost" type="button">Privacy</button>
+      </div>
+      <ol class="board" id="boardTitle" hidden></ol>
+      <p class="note" id="dailyNote"></p>
+      <p class="teaser"><b>Coming soon</b><span id="teaserTxt"></span></p>
+      <p class="lede">Mini Flock cams on poles have taken over the block, and every one of them is watching. Hold the street, drop the boss, then ride out on a dirtbike or in the getaway car and slip past the cams on the road.</p>
+      <div class="keys desk-only">
+        <div><kbd>WASD</kbd>Move</div>
+        <div><kbd>Mouse</kbd>Aim</div>
+        <div><kbd>Click</kbd>Shoot (hold)</div>
+        <div><kbd>R</kbd>Reload</div>
+        <div><kbd>Space</kbd>Pounce through danger</div>
+        <div><kbd>Q</kbd>Scammer Jammers: wipe the screen</div>
+        <div><kbd>Esc</kbd>Pause</div>
+      </div>
+      <div class="keys touch-only" hidden>
+        <div><kbd>Left thumb</kbd>Move. The Glock aims and fires by itself.</div>
+        <div><kbd>Right thumb</kbd>Drag to aim it yourself</div>
+        <div><kbd>Pounce</kbd>Dodge through danger</div>
+        <div><kbd>Jam</kbd>Scammer Jammers: wipe the screen</div>
+        <div><kbd>Empty mag</kbd>Reloads itself</div>
+      </div>
+      <p class="note">Gamepads work too: left stick moves, right stick aims and fires, A pounces, X reloads, Y fires the jammer.</p>
     </div>
-    <div class="keys touch-only" hidden>
-      <div><kbd>Left thumb</kbd>Move. The Glock aims and fires by itself.</div>
-      <div><kbd>Right thumb</kbd>Drag to aim it yourself</div>
-      <div><kbd>Pounce</kbd>Dodge through danger</div>
-      <div><kbd>Jam</kbd>Scammer Jammers: wipe the screen</div>
-      <div><kbd>Empty mag</kbd>Reloads itself</div>
-    </div>
-    <p class="note">Gamepads work too: left stick moves, right stick aims and fires, A pounces, X reloads, Y fires the jammer.</p>
   </div>
 </section>
 
@@ -1034,7 +1119,9 @@ addEventListener('keydown', e => {
     const n = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3 }[e.code];
     if (n != null && S.offer[n]) chooseUpgrade(S.offer[n]);
     else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape') leaveShop();
-  } else if (S.mode === 'title' && e.code === 'Enter') {
+  } else if (S.mode === 'title' && e.code === 'Escape' && drawerOpen()) {
+    openDrawer(null);
+  } else if (S.mode === 'title' && e.code === 'Enter' && !drawerOpen()) {
     startGame(false);
   } else if (S.mode === 'over' && (e.code === 'Enter' || e.code === 'KeyR' || e.code === 'Space')) {
     if (e.target && e.target.id === 'tagIn') return;
@@ -1340,7 +1427,16 @@ function gameOver() {
   showFor('over');
 }
 function blurActive() { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+// the start menu's drawers: one open at a time, closed by the X, a tap outside, Esc, or leaving the menu
+function openDrawer(id) {
+  document.querySelectorAll('#title .drawer').forEach(d => { d.hidden = d.id !== id; });
+  document.querySelectorAll('#title [data-drawer]').forEach(b => b.setAttribute('aria-expanded', b.dataset.drawer === id ? 'true' : 'false'));
+  const d = id && $(id), x = d && d.querySelector('.drawer-x');
+  if (x && !touchMode) x.focus({ preventScroll: true });
+}
+const drawerOpen = () => !!document.querySelector('#title .drawer:not([hidden])');
 function showFor(mode) {
+  if (mode !== 'title') openDrawer(null);
   $('title').hidden = mode !== 'title';
   $('pause').hidden = mode !== 'paused';
   $('upgrade').hidden = mode !== 'upgrade';
@@ -4960,6 +5056,7 @@ function openPrivacy(show) {
   else { el.hidden = true; if (privacyFrom) { privacyFrom.hidden = false; privacyFrom = null; } }
 }
 function openShop(show) {
+  if (show !== false && !$('title').hidden) openDrawer('drawLook');
   const l = $('shopTitle'); l.hidden = show === true ? false : show === false ? true : !l.hidden;
   $('shopBtn').setAttribute('aria-expanded', l.hidden ? 'false' : 'true'); $('shopBtn').textContent = l.hidden ? 'Shop' : 'Hide shop';
   if (!l.hidden) { TEL.track('store_open', { owned: getOwned().join(','), from: S ? S.mode : '' }); renderShop(); if (!onSite()) $('shopNote').textContent = 'Buying works on the live site, glockkitty.pages.dev. What you buy is saved on that device.'; }
@@ -5001,6 +5098,8 @@ async function claimPurchase() {
   } catch (e) { $('shopNote').textContent = 'Could not confirm the payment. Reload in a minute.'; }
 }
 $('shopBtn').addEventListener('click', () => { audioInit(); openShop(); });
+document.querySelectorAll('#title [data-drawer]').forEach(b => b.addEventListener('click', () => { audioInit(); SFX.choose(); openDrawer(b.getAttribute('aria-expanded') === 'true' ? null : b.dataset.drawer); }));
+document.querySelectorAll('#title .drawer').forEach(d => d.addEventListener('click', e => { if (e.target === d || e.target.closest('.drawer-x')) openDrawer(null); }));
 
 /* ---------- buttons ---------- */
 $('startBtn').addEventListener('click', () => startGame(false));
