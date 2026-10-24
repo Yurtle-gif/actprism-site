@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Glock Kitty 7</title>
+<meta name="description" content="Glock Kitty 7: a third-person battle royale on Neo-Tokyo 85 Island. Drop in, build, grind the Shuto expressway, outlast the Bass Storm.">
+<meta name="theme-color" content="#07020f">
+<style>
+  :root { --g: 10px; }
+  html, body { margin: 0; height: 100%; background: #07020f; overflow: hidden; }
+  * { -webkit-user-select: none; user-select: none; }
+  #game { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+  #overlay { position: fixed; inset: 0; pointer-events: none; font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; color: #fff; }
+  #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .12s;
+          background: radial-gradient(ellipse at center, transparent 40%, rgba(255,0,60,0.55) 100%); }
+  #storm-vig { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s;
+               background: radial-gradient(ellipse at center, transparent 30%, rgba(150,30,220,0.55) 100%); }
+
+  /* crosshair */
+  .gk-cross { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; }
+  .gk-cross i { position: absolute; background: #eafcff; box-shadow: 0 0 4px #5fe0ff; }
+  .gk-cross-t, .gk-cross-b { left: -1px; width: 2px; height: 9px; }
+  .gk-cross-l, .gk-cross-r { top: -1px; height: 2px; width: 9px; }
+  .gk-cross-t { bottom: var(--g); } .gk-cross-b { top: var(--g); }
+  .gk-cross-l { right: var(--g); } .gk-cross-r { left: var(--g); }
+  .gk-hitmark { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%,-50%) rotate(45deg); opacity: 0; }
+  .gk-hitmark.show { opacity: 1; }
+  .gk-hitmark::before, .gk-hitmark::after { content:''; position:absolute; background:#fff; }
+  .gk-hitmark::before { left:50%; top:0; width:2px; height:100%; margin-left:-1px; }
+  .gk-hitmark::after { top:50%; left:0; height:2px; width:100%; margin-top:-1px; }
+  .gk-hitmark.crit::before, .gk-hitmark.crit::after { background:#ffd23d; box-shadow:0 0 6px #ffb21f; }
+
+  /* vitals */
+  .gk-vitals { position: absolute; left: 22px; bottom: 26px; width: 300px; }
+  .gk-bar-wrap { position: relative; height: 20px; margin-top: 6px; background: rgba(8,4,18,0.75);
+                 border: 2px solid rgba(255,255,255,0.18); transform: skewX(-14deg); box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+  .gk-bar { position: absolute; inset: 0; width: 100%; transition: width .12s; }
+  .gk-hp { background: linear-gradient(90deg, #7bff4d, #b6ff3a); box-shadow: inset 0 0 8px rgba(0,0,0,0.3); }
+  .gk-shield { background: linear-gradient(90deg, #3aa0ff, #7fd0ff); }
+  .gk-bar-txt { position: absolute; right: 8px; top: 1px; font-weight: bold; font-size: 13px; transform: skewX(14deg);
+                text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+
+  /* build chips */
+  .gk-build { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; }
+  .gk-chip { width: 58px; padding: 4px 0; text-align: center; background: rgba(8,4,18,0.6); border: 1px solid rgba(95,224,255,0.25); border-radius: 6px; opacity: .55; }
+  .gk-chip.on { opacity: 1; border-color: #00f0ff; box-shadow: 0 0 12px #00f0ff88; }
+  .gk-chip-key { font-weight: bold; color: #00f0ff; font-size: 15px; }
+  .gk-chip-sub { font-size: 9px; color: #9fb6c4; letter-spacing: .5px; }
+  .gk-mats { margin-left: 14px; font-size: 16px; color: #b6ff3a; text-shadow: 0 0 6px #000; }
+  .gk-mats b { font-size: 20px; }
+
+  /* hotbar */
+  .gk-hotbar { position: absolute; right: 22px; bottom: 26px; display: flex; gap: 8px; }
+  .gk-slot { position: relative; width: 74px; height: 58px; background: rgba(8,4,18,0.78);
+             border: 2px solid rgba(255,255,255,0.14); border-radius: 8px; transform: skewX(-10deg);
+             display: flex; flex-direction: column; justify-content: center; align-items: center; transition: all .1s; }
+  .gk-slot.active { transform: skewX(-10deg) translateY(-6px) scale(1.06); }
+  .gk-slot > * { transform: skewX(10deg); }
+  .gk-slot-num { position: absolute; left: 5px; top: 2px; font-size: 11px; color: #cfd6de; opacity: .7; transform: skewX(10deg); }
+  .gk-slot-name { font-size: 12px; font-weight: bold; text-align: center; line-height: 1.1; padding: 0 3px; }
+  .gk-slot-ammo { font-size: 11px; color: #e6eef5; margin-top: 3px; }
+
+  /* top-right */
+  .gk-topright { position: absolute; right: 22px; top: 18px; width: 176px; text-align: center; }
+  .gk-alive { background: rgba(8,4,18,0.7); border: 1px solid rgba(255,95,208,0.4); border-radius: 6px; padding: 4px; margin-bottom: 8px; }
+  .gk-alive span { font-size: 11px; letter-spacing: 2px; color: #ff9fe0; }
+  .gk-alive b { font-size: 22px; margin-left: 8px; color: #fff; text-shadow: 0 0 8px #ff5fd0; }
+  .gk-mini { width: 176px; height: 176px; border-radius: 50%; background: #0a0617; box-shadow: 0 0 16px rgba(255,95,208,0.4); }
+
+  /* killfeed */
+  .gk-feed { position: absolute; left: 22px; top: 18px; width: 420px; }
+  .gk-feed-line { background: rgba(8,4,18,0.6); border-left: 3px solid #ff5fd0; padding: 4px 8px; margin-bottom: 5px;
+                  font-size: 13px; border-radius: 3px; transition: opacity .6s; }
+  .gk-feed-line .wn { color: #ffc23d; }
+
+  /* interact + banners + reload */
+  .gk-interact { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); background: rgba(8,4,18,0.7);
+                 padding: 7px 16px; border-radius: 6px; border: 1px solid #5fe0ff; font-size: 15px; }
+  .gk-interact b { color: #00f0ff; background: rgba(0,240,255,0.15); padding: 1px 7px; border-radius: 4px; }
+  .gk-banner { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); font-size: 26px; font-weight: bold;
+               letter-spacing: 1px; text-shadow: 0 2px 8px #000, 0 0 16px currentColor; white-space: nowrap; }
+  .gk-reload { position: absolute; left: 50%; top: 56%; transform: translateX(-50%); font-size: 13px; letter-spacing: 2px;
+               color: #ffc23d; background: rgba(8,4,18,0.7); padding: 4px 12px; border-radius: 5px; }
+  .gk-reload span { display: inline-block; height: 4px; background: #ffc23d; margin-left: 8px; vertical-align: middle; border-radius: 2px; transition: width .05s; }
+
+  /* floating damage numbers */
+  .gk-dmg { position: absolute; transform: translate(-50%, 0); font-weight: bold; font-size: 22px; pointer-events: none;
+            transition: transform .72s cubic-bezier(.2,.7,.3,1), opacity .72s; text-shadow: 0 2px 3px #000, 0 0 4px #000; }
+  .gk-dmg.health { color: #ffffff; }
+  .gk-dmg.shield { color: #5fb8ff; }
+  .gk-dmg.crit   { color: #ffd23d; font-size: 30px; text-shadow: 0 2px 4px #000, 0 0 10px #ffb21f; }
+
+  /* full-screen screens */
+  .gk-screen { position: absolute; inset: 0; pointer-events: auto; display: flex; flex-direction: column;
+               align-items: center; justify-content: center; text-align: center;
+               background: radial-gradient(ellipse at center, rgba(40,10,70,0.6), rgba(7,2,15,0.94)); cursor: pointer; }
+  .gk-title { font-size: 84px; font-weight: 900; letter-spacing: 4px; color: #fff;
+              text-shadow: 0 0 20px #ff5fd0, 0 6px 0 #b24bff, 0 0 60px #5fe0ff; }
+  .gk-title span { color: #ffc23d; text-shadow: 0 0 20px #ffc23d; }
+  .gk-sub { font-size: 20px; letter-spacing: 6px; color: #9ad7ff; margin-top: 6px; }
+  .gk-start-btn { margin-top: 36px; font-size: 22px; font-weight: bold; color: #07020f; background: linear-gradient(90deg,#5fe0ff,#b6ff3a);
+                  padding: 14px 34px; border-radius: 10px; box-shadow: 0 0 24px #5fe0ff88; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.06);} }
+  .gk-keys { margin-top: 30px; font-size: 14px; color: #c7d2dc; line-height: 2; }
+  .gk-keys b { color: #ffc23d; background: rgba(255,255,255,0.08); padding: 1px 7px; border-radius: 4px; }
+  .gk-victory { font-size: 70px; font-weight: 900; color: #ffc23d; text-shadow: 0 0 26px #ffb21f, 0 6px 0 #b24bff; }
+  .gk-defeat { font-size: 64px; font-weight: 900; color: #ff5b6e; text-shadow: 0 0 26px #ff2a55; }
+  .gk-stat { margin-top: 14px; font-size: 18px; color: #e6eef5; }
+  .gk-stat b { color: #b6ff3a; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hurt"></div>
+<div id="storm-vig"></div>
+<div id="overlay"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
